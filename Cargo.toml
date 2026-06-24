@@ -1,0 +1,21 @@
+[package]
+name = "cubicbattle"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+macroquad = "0.4"
+
+[package.metadata.android]
+package_name = "com.yourname.cubicbattle"
+build_targets = ["aarch64-linux-android"]
+assets = "assets"
+# Разрешения (если понадобятся)
+# runtime_libs = ""
+
+[[bin]]
+name = "cubicbattle"
+path = "src/main.rs"
