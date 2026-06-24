@@ -6,20 +6,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up NDK
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r25c
-
-      - name: Build Libraries (Universal)
+      - name: Build Libraries
         run: |
-          # Собираем все .c файлы в одну библиотеку
           $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android30-clang \
           -shared -fPIC *.c $ANDROID_NDK_ROOT/sources/android/native_app_glue/android_native_app_glue.c \
           -o libmain_64.so -I. -I$ANDROID_NDK_ROOT/sources/android/native_app_glue \
           -landroid -llog -lGLESv2 -lEGL -lm
-
       - name: Create APK
         run: |
           cat <<EOF > AndroidManifest.xml
@@ -38,11 +34,10 @@ jobs:
           mkdir -p staging/lib/arm64-v8a && cp libmain_64.so staging/lib/arm64-v8a/libmain.so
           $BUILD_TOOLS/aapt package -f -M AndroidManifest.xml -I $PLATFORM_JAR -F unsigned.apk staging/
           $BUILD_TOOLS/zipalign -v 4 unsigned.apk aligned.apk
-          keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug, O=Android, C=US"
-          $BUILD_TOOLS/apksigner sign --ks debug.keystore --ks-pass pass:android --out final.apk aligned.apk
-
+          keytool -genkey -v -keystore d.ks -storepass android -alias a -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=A"
+          $BUILD_TOOLS/apksigner sign --ks d.ks --ks-pass pass:android --out final.apk aligned.apk
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Horror-Battle-APK
+          name: Horror-APK
           path: final.apk
