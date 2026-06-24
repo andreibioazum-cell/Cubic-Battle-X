@@ -2,33 +2,26 @@
 name = "cubicbattle"
 version = "0.1.0"
 edition = "2021"
-authors = ["YourName"]
-description = "3D Game with Rust - No GC"
 
-# Это важно: для Android проект должен уметь компилироваться в динамическую библиотеку
 [lib]
 name = "cubicbattle"
+# ВОТ ЭТА СТРОКА РЕШАЕТ ПРОБЛЕМУ:
+path = "src/main.rs"
 crate-type = ["cdylib"]
 
 [dependencies]
-# Macroquad — отличный движок для 3D/2D без лишней магии и без GC
 macroquad = "0.4"
 
-# Секция для сборщика APK (cargo-apk)
 [package.metadata.android]
-# Название пакета (как id в Play Store)
 package_name = "com.cubicbattle.x"
-# Название приложения на экране телефона
 label = "Cubic Battle X"
-# Версия SDK, которую мы устанавливали в GitHub Actions
 target_sdk_version = 30
 min_sdk_version = 21
-# Архитектура процессора (современные Android-телефоны)
 build_targets = ["aarch64-linux-android"]
-# Если у тебя будут картинки или звуки, положи их в папку assets
 assets = "assets"
 
-# Настройка бинарного файла
+# Секцию [[bin]] можно оставить или удалить, 
+# но для Android важнее блок [lib] выше.
 [[bin]]
-name = "cubicbattle"
+name = "cubicbattle-bin"
 path = "src/main.rs"
