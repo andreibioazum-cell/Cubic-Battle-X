@@ -1,19 +1,10 @@
 #define SOKOL_GLES2
 #define SOKOL_ANDROID
 #define SOKOL_IMPL
-#include "https://raw.githubusercontent.com/floooh/sokol/master/sokol_app.h"
-#include "https://raw.githubusercontent.com/floooh/sokol/master/sokol_gfx.h"
-#include "https://raw.githubusercontent.com/floooh/sokol/master/sokol_glue.h"
+#include "sokol_app.h"
+#include "sokol_gfx.h"
+#include "sokol_glue.h"
 #include <math.h>
-
-// Вершинный шейдер
-const char* vs_src = 
-    "uniform mat4 mvp; attribute vec4 position; attribute vec4 color; varying vec4 v_color; "
-    "void main() { gl_Position = mvp * position; v_color = color; }";
-
-// Фрагментный шейдер
-const char* fs_src = 
-    "precision mediump float; varying vec4 v_color; void main() { gl_FragColor = v_color; }";
 
 static struct {
     sg_pipeline pip;
@@ -21,16 +12,12 @@ static struct {
     float rx, ry;
 } state;
 
-// Инициализация игры
 void init(void) {
     sg_setup(&(sg_desc){ .context = sokol_helper_backend_desc() });
 
-    // Куб: позиции и цвета
     float vertices[] = {
-        -0.5f,-0.5f,-0.5f, 1.0f,0.0f,0.0f,1.0f,  0.5f,-0.5f,-0.5f, 1.0f,0.0f,0.0f,1.0f,
-         0.5f, 0.5f,-0.5f, 1.0f,0.0f,0.0f,1.0f, -0.5f, 0.5f,-0.5f, 1.0f,0.0f,0.0f,1.0f,
-        -0.5f,-0.5f, 0.5f, 0.0f,1.0f,0.0f,1.0f,  0.5f,-0.5f, 0.5f, 0.0f,1.0f,0.0f,1.0f,
-         0.5f, 0.5f, 0.5f, 0.0f,1.0f,0.0f,1.0f, -0.5f, 0.5f, 0.5f, 0.0f,1.0f,0.0f,1.0f
+        -0.5f,-0.5f,-0.5f, 1,0,0,1,  0.5f,-0.5f,-0.5f, 1,0,0,1,  0.5f, 0.5f,-0.5f, 1,0,0,1, -0.5f, 0.5f,-0.5f, 1,0,0,1,
+        -0.5f,-0.5f, 0.5f, 0,1,0,1,  0.5f,-0.5f, 0.5f, 0,1,0,1,  0.5f, 0.5f, 0.5f, 0,1,0,1, -0.5f, 0.5f, 0.5f, 0,1,0,1
     };
     state.bind.vertex_buffers[0] = sg_make_buffer(&(sg_buffer_desc){ .data = SG_RANGE(vertices) });
 
@@ -39,7 +26,8 @@ void init(void) {
 
     state.pip = sg_make_pipeline(&(sg_pipeline_desc){
         .shader = sg_make_shader(&(sg_shader_desc){
-            .vs.source = vs_src, .fs.source = fs_src,
+            .vs.source = "uniform mat4 m; attribute vec4 position; attribute vec4 color; varying vec4 v_col; void main() { gl_Position = m * position; v_col = color; }",
+            .fs.source = "precision mediump float; varying vec4 v_col; void main() { gl_FragColor = v_col; }",
             .vs.uniform_blocks[0].size = 64
         }),
         .layout.attrs[0].format = SG_VERTEXFORMAT_FLOAT3,
@@ -49,19 +37,17 @@ void init(void) {
     });
 }
 
-// Кадр анимации
 void frame(void) {
-    state.rx += 1.0f; state.ry += 2.0f;
-    sg_pass_action pass_action = { .colors[0] = { .action = SG_ACTION_CLEAR, .value = {0.1f, 0.1f, 0.3f, 1.0f} } };
-    sg_begin_default_pass(&pass_action, sapp_width(), sapp_height());
+    float mvp[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1}; // Упрощенная матрица
+    sg_begin_default_pass(&(sg_pass_action){.colors[0]={.action=SG_ACTION_CLEAR, .value={0,0.5,0.7,1}}}, sapp_width(), sapp_height());
     sg_apply_pipeline(state.pip);
     sg_apply_bindings(&state.bind);
-    // (Тут должна быть матрица MVP, для краткости опустим её расчет)
+    sg_apply_uniforms(SG_SHADERSTAGE_VS, 0, &SG_RANGE(mvp));
     sg_draw(0, 36, 1);
     sg_end_pass();
     sg_commit();
 }
 
 sapp_desc sokol_main(int argc, char* argv[]) {
-    return (sapp_desc){ .init_cb = init, .frame_cb = frame, .width = 800, .height = 600, .window_title = "Cubic Battle" };
+    return (sapp_desc){ .init_cb = init, .frame_cb = frame, .window_title = "Cubic Battle" };
 }
