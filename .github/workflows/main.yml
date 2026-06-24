@@ -1,0 +1,42 @@
+name: Build APK
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r25c
+
+      - name: Install cargo-apk
+        run: cargo install cargo-apk
+
+      - name: Build APK
+        # Собираем в режиме debug (он автоматически подписывается дебаг-ключом)
+        run: cargo apk build
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CubicBattle-APK
+          # cargo-apk создает путь на основе имени в Cargo.toml
+          path: target/debug/apk/cubicbattle.apk
