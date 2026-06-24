@@ -6,12 +6,14 @@
 
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "CubicBattle", __VA_ARGS__)
 
-// --- МАТЕМАТИКА ---
 typedef struct { float m[16]; } mat4;
 void mat4_id(mat4* m) { for(int i=0; i<16; i++) m->m[i]=0; m->m[0]=m->m[5]=m->m[10]=m->m[15]=1.0f; }
 void mat4_perspective(mat4* m, float fov, float asp, float n, float f) {
     float s = 1.0f / tanf(fov * 0.5f);
     mat4_id(m); m->m[0]=s/asp; m->m[5]=s; m->m[10]=(f+n)/(n-f); m->m[11]=-1.0f; m->m[14]=(2*f*n)/(n-f); m->m[15]=0;
+}
+void mat4_ortho(mat4* m, float l, float r, float b, float t) {
+    mat4_id(m); m->m[0]=2.0f/(r-l); m->m[5]=2.0f/(t-b); m->m[10]=-1.0f; m->m[12]=-(r+l)/(r-l); m->m[13]=-(t+b)/(t-b); m->m[15]=1.0f;
 }
 void mat4_mul(mat4* res, mat4* a, mat4* b) {
     mat4 t;
@@ -20,24 +22,23 @@ void mat4_mul(mat4* res, mat4* a, mat4* b) {
     *res = t;
 }
 
-// --- ДАННЫЕ ---
 struct engine {
     struct android_app* app; EGLDisplay disp; EGLSurface surf; EGLContext ctx;
-    GLuint prog; GLint mvp_loc, col_loc, light_loc, cam_loc, shadow_mode_loc;
+    GLuint prog; GLint mvp_loc, col_loc, light_loc, mode_loc;
     float p_x, p_z, p_rot; 
     float joy_sx, joy_sy, joy_cx, joy_cy; int touching_joy;
     float look_sx; int touching_look;
 };
 
 float cube_data[] = {
-    -0.5,-0.5, 0.5,  0,0,1,  0.5,-0.5, 0.5,  0,0,1,  0.5,0.5,0.5,  0,0,1, -0.5,0.5,0.5,  0,0,1,
-    -0.5,-0.5,-0.5,  0,0,-1, -0.5,0.5,-0.5,  0,0,-1,  0.5,0.5,-0.5, 0,0,-1,  0.5,-0.5,-0.5, 0,0,-1,
-    -0.5, 0.5, 0.5,  0,1,0,  0.5, 0.5, 0.5,  0,1,0,  0.5,0.5,-0.5, 0,1,0, -0.5,0.5,-0.5,  0,1,0,
-    -0.5,-0.5, 0.5,  0,-1,0, -0.5,-0.5,-0.5, 0,-1,0,  0.5,-0.5,-0.5, 0,-1,0,  0.5,-0.5, 0.5, 0,-1,0,
-     0.5,-0.5, 0.5,  1,0,0,  0.5,-0.5,-0.5,  1,0,0,  0.5,0.5,-0.5, 1,0,0,  0.5,0.5,0.5,  1,0,0,
-    -0.5,-0.5, 0.5, -1,0,0, -0.5,0.5,0.5,  -1,0,0, -0.5,0.5,-0.5, -1,0,0, -0.5,-0.5,-0.5, -1,0,0
+    -0.5,-0.5, 0.5, 0,0,1,  0.5,-0.5, 0.5, 0,0,1,  0.5, 0.5, 0.5, 0,0,1, -0.5, 0.5, 0.5, 0,0,1,
+    -0.5,-0.5,-0.5, 0,0,-1, -0.5, 0.5,-0.5, 0,0,-1,  0.5, 0.5,-0.5, 0,0,-1,  0.5,-0.5,-0.5, 0,0,-1,
+    -0.5, 0.5, 0.5, 0,1,0,  0.5, 0.5, 0.5, 0,1,0,  0.5, 0.5,-0.5, 0,1,0, -0.5, 0.5,-0.5, 0,1,0,
+    -0.5,-0.5, 0.5, 0,-1,0, -0.5,-0.5,-0.5, 0,-1,0,  0.5,-0.5,-0.5, 0,-1,0,  0.5,-0.5, 0.5, 0,-1,0,
+     0.5,-0.5, 0.5, 1,0,0,  0.5,-0.5,-0.5, 1,0,0,  0.5, 0.5,-0.5, 1,0,0,  0.5, 0.5, 0.5, 1,0,0,
+    -0.5,-0.5, 0.5,-1,0,0, -0.5, 0.5, 0.5,-1,0,0, -0.5, 0.5,-0.5,-1,0,0, -0.5,-0.5,-0.5,-1,0,0
 };
-unsigned short cube_ind[] = { 0,1,2, 0,2,3, 4,5,6, 4,6,7, 8,9,10, 8,10,11, 12,13,14, 12,14,15, 16,17,18, 16,18,19, 20,21,22, 20,22,23 };
+unsigned short cube_ind[] = { 0,1,2,0,2,3, 4,5,6,4,6,7, 8,9,10,8,10,11, 12,13,14,12,14,15, 16,17,18,16,18,19, 20,21,22,20,22,23 };
 
 static void init_gl(struct engine* eng) {
     eng->disp = eglGetDisplay(EGL_DEFAULT_DISPLAY); eglInitialize(eng->disp, 0, 0);
@@ -47,35 +48,23 @@ static void init_gl(struct engine* eng) {
     eng->ctx = eglCreateContext(eng->disp, cfg, NULL, (EGLint[]){EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE});
     eglMakeCurrent(eng->disp, eng->surf, eng->surf, eng->ctx);
 
-    const char* vs = 
-        "uniform mat4 m; attribute vec4 p; attribute vec3 n; varying vec3 v_n; varying vec3 v_p; "
-        "void main(){ gl_Position=m*p; v_n=n; v_p=p.xyz; }";
-    const char* fs = 
-        "precision highp float; uniform vec4 c; uniform vec3 l_dir; uniform vec3 cam_p; uniform int is_shadow; "
-        "varying vec3 v_n; varying vec3 v_p; "
-        "void main(){ "
-        "  if(is_shadow==1){ gl_FragColor=vec4(0.0,0.0,0.0,0.4); return; } "
-        "  float d = max(dot(v_n, l_dir), 0.0); "
-        "  vec3 view_d = normalize(cam_p - v_p); vec3 refl = reflect(-l_dir, v_n); "
-        "  float spec = pow(max(dot(view_d, refl), 0.0), 16.0); "
-        "  gl_FragColor = vec4(c.rgb * (d + 0.3) + spec * 0.5, 1.0); "
-        "}";
+    const char* vs = "uniform mat4 m; attribute vec4 p; attribute vec3 n; varying vec3 v_n; varying float v_dist; void main(){ vec4 pos = m*p; gl_Position=pos; v_n=n; v_dist=length(pos.xyz); }";
+    const char* fs = "precision mediump float; uniform vec4 c; uniform vec3 l_dir; uniform int mode; varying vec3 v_n; varying float v_dist; void main(){ if(mode==2){ gl_FragColor=c; return; } float diff = (mode==1) ? 1.0 : max(dot(v_n, l_dir), 0.3); vec4 final = vec4(c.rgb * diff, c.a); float fog = clamp((v_dist - 10.0) / 40.0, 0.0, 1.0); gl_FragColor = mix(final, vec4(0.39, 0.39, 0.39, 1.0), fog); }";
     
     eng->prog = glCreateProgram();
     GLuint vsh = glCreateShader(GL_VERTEX_SHADER); glShaderSource(vsh,1,&vs,0); glCompileShader(vsh);
     GLuint fsh = glCreateShader(GL_FRAGMENT_SHADER); glShaderSource(fsh,1,&fs,0); glCompileShader(fsh);
     glAttachShader(eng->prog,vsh); glAttachShader(eng->prog,fsh); glLinkProgram(eng->prog);
     eng->mvp_loc = glGetUniformLocation(eng->prog, "m"); eng->col_loc = glGetUniformLocation(eng->prog, "c");
-    eng->light_loc = glGetUniformLocation(eng->prog, "l_dir"); eng->cam_loc = glGetUniformLocation(eng->prog, "cam_p");
-    eng->shadow_mode_loc = glGetUniformLocation(eng->prog, "is_shadow");
+    eng->light_loc = glGetUniformLocation(eng->prog, "l_dir"); eng->mode_loc = glGetUniformLocation(eng->prog, "mode");
+    glEnable(GL_DEPTH_TEST);
 }
 
-void draw_obj(struct engine* eng, mat4* mvp, float r, float g, float b, int shadow) {
+void draw_obj(struct engine* eng, mat4* mvp, float r, float g, float b, float a, int mode) {
     glUniformMatrix4fv(eng->mvp_loc, 1, 0, mvp->m);
-    glUniform4f(eng->col_loc, r, g, b, 1.0f);
+    glUniform4f(eng->col_loc, r, g, b, a);
     glUniform3f(eng->light_loc, 0.5f, 1.0f, 0.3f);
-    glUniform3f(eng->cam_loc, eng->p_x, 1.6f, eng->p_z);
-    glUniform1i(eng->shadow_mode_loc, shadow);
+    glUniform1i(eng->mode_loc, mode);
     glVertexAttribPointer(0, 3, GL_FLOAT, 0, 6*4, cube_data); glEnableVertexAttribArray(0);
     glVertexAttribPointer(1, 3, GL_FLOAT, 0, 6*4, &cube_data[3]); glEnableVertexAttribArray(1);
     glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_SHORT, cube_ind);
@@ -86,13 +75,17 @@ static void draw(struct engine* eng) {
     int w = ANativeWindow_getWidth(eng->app->window), h = ANativeWindow_getHeight(eng->app->window);
     
     if (eng->touching_joy) {
-        float dx = (eng->joy_cx - eng->joy_sx)/100.0f, dy = (eng->joy_cy - eng->joy_sy)/100.0f;
+        float dx = (eng->joy_cx - eng->joy_sx)/100.0f;
+        float dy = (eng->joy_cy - eng->joy_sy)/100.0f;
         float s = sinf(eng->p_rot), c = cosf(eng->p_rot);
-        eng->p_x += (dx * c + dy * s) * 0.15f; eng->p_z += (-dx * s + dy * c) * 0.15f;
+        // ИСПРАВЛЕНО: Движение теперь зависит от поворота камеры
+        eng->p_x += (dx * c - dy * s) * 0.15f;
+        eng->p_z += (dx * s + dy * c) * 0.15f;
     }
 
     glViewport(0, 0, w, h); glClearColor(0.39f, 0.39f, 0.39f, 1.0f); glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glUseProgram(eng->prog);
+    glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     mat4 proj, view, rot, pv, mod, mvp;
     mat4_perspective(&proj, 1.0f, (float)w/h, 0.1f, 100.0f);
@@ -101,23 +94,27 @@ static void draw(struct engine* eng) {
     mat4_mul(&pv, &rot, &view); mat4_mul(&pv, &proj, &pv);
 
     // ПОЛ
-    mat4_id(&mod); mod.m[5]=0.01f; mod.m[0]=200.0f; mod.m[10]=200.0f;
-    mat4_mul(&mvp, &pv, &mod); draw_obj(eng, &mvp, 0.4f, 0.4f, 0.4f, 0);
+    mat4_id(&mod); mod.m[5]=0.01f; mod.m[0]=500.0f; mod.m[10]=500.0f;
+    mat4_mul(&mvp, &pv, &mod); draw_obj(eng, &mvp, 0.4f, 0.45f, 0.4f, 1.0f, 0);
 
-    // ОБЪЕКТ С ТЕНЬЮ
+    // КУБ
     mat4_id(&mod); mod.m[12]=5.0f; mod.m[13]=1.0f; mod.m[14]=5.0f;
-    // 1. Рисуем тень (сплюснутую на пол)
-    mat4 shadow_m = mod; shadow_m.m[13]=0.02f; shadow_m.m[5]=0.001f; shadow_m.m[12]+=0.2f; // Сдвиг тени
-    mat4_mul(&mvp, &pv, &shadow_m); draw_obj(eng, &mvp, 0,0,0, 1);
-    // 2. Рисуем сам куб
-    mat4_mul(&mvp, &pv, &mod); draw_obj(eng, &mvp, 0.8f, 0.2f, 0.2f, 0);
+    // Тень (прозрачная)
+    mat4 shadow_m = mod; shadow_m.m[13]=0.02f; shadow_m.m[5]=0.001f; shadow_m.m[12]+=0.3f;
+    mat4_mul(&mvp, &pv, &shadow_m); draw_obj(eng, &mvp, 0,0,0, 0.4f, 1);
+    // Сам куб
+    mat4_mul(&mvp, &pv, &mod); draw_obj(eng, &mvp, 0.8f, 0.2f, 0.2f, 1.0f, 0);
 
-    // HUD (ДЖОЙСТИК)
-    glDisable(GL_DEPTH_TEST); glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    // HUD
+    glDisable(GL_DEPTH_TEST);
+    mat4 ortho; mat4_ortho(&ortho, 0, w, h, 0);
     if (eng->touching_joy) {
-        // Здесь можно добавить отрисовку 2D квадратов для джойстика
+        mat4_id(&mod); mod.m[12]=eng->joy_sx; mod.m[13]=eng->joy_sy; mod.m[0]=160; mod.m[5]=160;
+        mat4_mul(&mvp, &ortho, &mod); draw_obj(eng, &mvp, 1,1,1, 0.3f, 2);
+        mat4_id(&mod); mod.m[12]=eng->joy_cx; mod.m[13]=eng->joy_cy; mod.m[0]=70; mod.m[5]=70;
+        mat4_mul(&mvp, &ortho, &mod); draw_obj(eng, &mvp, 0,0,0, 0.5f, 2);
     }
-    glDisable(GL_BLEND); glEnable(GL_DEPTH_TEST);
+    glEnable(GL_DEPTH_TEST);
     eglSwapBuffers(eng->disp, eng->surf);
 }
 
@@ -133,9 +130,9 @@ static int32_t handle_input(struct android_app* app, AInputEvent* ev) {
             else { eng->touching_look=1; eng->look_sx=x; }
         } else if (action == AMOTION_EVENT_ACTION_MOVE) {
             for(int i=0; i<AMotionEvent_getPointerCount(ev); i++){
-                float px = AMotionEvent_getX(ev, i);
-                if(px < w/2) { eng->joy_cx=px; eng->joy_cy=AMotionEvent_getY(ev, i); }
-                else { eng->p_rot -= (px - eng->look_sx) * 0.005f; eng->look_sx=px; } // Исправлена инверсия
+                float px = AMotionEvent_getX(ev, i), py = AMotionEvent_getY(ev, i);
+                if(px < w/2) { eng->joy_cx=px; eng->joy_cy=py; }
+                else { eng->p_rot -= (px - eng->look_sx) * 0.005f; eng->look_sx=px; }
             }
         } else if (action == AMOTION_EVENT_ACTION_UP || action == AMOTION_EVENT_ACTION_POINTER_UP) {
             if (x < w/2) eng->touching_joy=0; else eng->touching_look=0;
