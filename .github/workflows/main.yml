@@ -1,4 +1,4 @@
-name: Build Horror APK
+name: Build Universal Horror APK
 on: [push, workflow_dispatch]
 
 jobs:
@@ -10,18 +10,28 @@ jobs:
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r25c
-      - name: Build Libraries
+
+      - name: Build Libraries (64-bit and 32-bit)
         run: |
+          # Собираем 64-бит (arm64-v8a)
           $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android30-clang \
           -shared -fPIC *.c $ANDROID_NDK_ROOT/sources/android/native_app_glue/android_native_app_glue.c \
           -o libmain_64.so -I. -I$ANDROID_NDK_ROOT/sources/android/native_app_glue \
           -landroid -llog -lGLESv2 -lEGL -lm
+
+          # Собираем 32-бит (armeabi-v7a)
+          $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi30-clang \
+          -shared -fPIC *.c $ANDROID_NDK_ROOT/sources/android/native_app_glue/android_native_app_glue.c \
+          -o libmain_32.so -I. -I$ANDROID_NDK_ROOT/sources/android/native_app_glue \
+          -landroid -llog -lGLESv2 -lEGL -lm
+
       - name: Create APK
         run: |
           cat <<EOF > AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.horror.battle">
-              <application android:label="Horror Battle" android:hasCode="false">
+              <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
+              <application android:label="Horror Battle" android:hasCode="false" android:extractNativeLibs="true">
                   <activity android:name="android.app.NativeActivity" android:exported="true">
                       <meta-data android:name="android.app.lib_name" android:value="main" />
                       <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
@@ -29,15 +39,26 @@ jobs:
               </application>
           </manifest>
           EOF
+          
           BUILD_TOOLS=$ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools/ | tail -n 1)
           PLATFORM_JAR=$(ls $ANDROID_HOME/platforms/*/android.jar | tail -n 1)
-          mkdir -p staging/lib/arm64-v8a && cp libmain_64.so staging/lib/arm64-v8a/libmain.so
+          
+          # Создаем структуру папок для обеих архитектур
+          mkdir -p staging/lib/arm64-v8a staging/lib/armeabi-v7a
+          cp libmain_64.so staging/lib/arm64-v8a/libmain.so
+          cp libmain_32.so staging/lib/armeabi-v7a/libmain.so
+
+          # Упаковка
           $BUILD_TOOLS/aapt package -f -M AndroidManifest.xml -I $PLATFORM_JAR -F unsigned.apk staging/
+          # Выравнивание
           $BUILD_TOOLS/zipalign -v 4 unsigned.apk aligned.apk
+          # Создание ключа
           keytool -genkey -v -keystore d.ks -storepass android -alias a -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=A"
-          $BUILD_TOOLS/apksigner sign --ks d.ks --ks-pass pass:android --out final.apk aligned.apk
+          # Подпись V1, V2 и V3 (обязательно для Android 14)
+          $BUILD_TOOLS/apksigner sign --ks d.ks --ks-pass pass:android --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true --out final.apk aligned.apk
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Horror-APK
+          name: Universal-Horror-APK
           path: final.apk
