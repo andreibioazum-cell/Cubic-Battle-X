@@ -25,9 +25,10 @@ void mat4_mul(mat4* res, mat4* a, mat4* b) {
 struct engine {
     struct android_app* app; EGLDisplay disp; EGLSurface surf; EGLContext ctx;
     GLuint prog; GLint mvp_loc, col_loc, light_loc, mode_loc;
-    float p_x, p_z, p_rot; 
+    float p_x, p_z, p_rot_y, p_rot_x; 
     float joy_sx, joy_sy, joy_cx, joy_cy; int touching_joy;
-    float look_sx; int touching_look;
+    float look_sx, look_sy; int touching_look;
+    int rt_enabled; // Настройка "Ray Tracing"
 };
 
 float cube_data[] = {
@@ -49,8 +50,7 @@ static void init_gl(struct engine* eng) {
     eglMakeCurrent(eng->disp, eng->surf, eng->surf, eng->ctx);
 
     const char* vs = "uniform mat4 m; attribute vec4 p; attribute vec3 n; varying vec3 v_n; varying float v_dist; void main(){ vec4 pos = m*p; gl_Position=pos; v_n=n; v_dist=length(pos.xyz); }";
-    const char* fs = "precision mediump float; uniform vec4 c; uniform vec3 l_dir; uniform int mode; varying vec3 v_n; varying float v_dist; void main(){ if(mode==2){ gl_FragColor=c; return; } float diff = (mode==1) ? 1.0 : max(dot(v_n, l_dir), 0.3); vec4 final = vec4(c.rgb * diff, c.a); float fog = clamp((v_dist - 10.0) / 40.0, 0.0, 1.0); gl_FragColor = mix(final, vec4(0.39, 0.39, 0.39, 1.0), fog); }";
-    
+    const char* fs = "precision mediump float; uniform vec4 c; uniform vec3 l_dir; uniform int mode; varying vec3 v_n; varying float v_dist; void main(){ if(mode==2){ gl_FragColor=c; return; } float diff = (mode==1) ? 1.0 : max(dot(v_n, l_dir), 0.2); vec4 final = vec4(c.rgb * diff, c.a); float fog = clamp((v_dist - 5.0) / 35.0, 0.0, 1.0); gl_FragColor = mix(final, vec4(0.39, 0.39, 0.39, 1.0), fog); }";
     eng->prog = glCreateProgram();
     GLuint vsh = glCreateShader(GL_VERTEX_SHADER); glShaderSource(vsh,1,&vs,0); glCompileShader(vsh);
     GLuint fsh = glCreateShader(GL_FRAGMENT_SHADER); glShaderSource(fsh,1,&fs,0); glCompileShader(fsh);
@@ -61,10 +61,8 @@ static void init_gl(struct engine* eng) {
 }
 
 void draw_obj(struct engine* eng, mat4* mvp, float r, float g, float b, float a, int mode) {
-    glUniformMatrix4fv(eng->mvp_loc, 1, 0, mvp->m);
-    glUniform4f(eng->col_loc, r, g, b, a);
-    glUniform3f(eng->light_loc, 0.5f, 1.0f, 0.3f);
-    glUniform1i(eng->mode_loc, mode);
+    glUniformMatrix4fv(eng->mvp_loc, 1, 0, mvp->m); glUniform4f(eng->col_loc, r, g, b, a);
+    glUniform3f(eng->light_loc, 0.5f, 1.0f, 0.3f); glUniform1i(eng->mode_loc, mode);
     glVertexAttribPointer(0, 3, GL_FLOAT, 0, 6*4, cube_data); glEnableVertexAttribArray(0);
     glVertexAttribPointer(1, 3, GL_FLOAT, 0, 6*4, &cube_data[3]); glEnableVertexAttribArray(1);
     glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_SHORT, cube_ind);
@@ -73,49 +71,43 @@ void draw_obj(struct engine* eng, mat4* mvp, float r, float g, float b, float a,
 static void draw(struct engine* eng) {
     if (!eng->disp) return;
     int w = ANativeWindow_getWidth(eng->app->window), h = ANativeWindow_getHeight(eng->app->window);
-    
     if (eng->touching_joy) {
-        float dx = (eng->joy_cx - eng->joy_sx)/100.0f;
-        float dy = (eng->joy_cy - eng->joy_sy)/100.0f;
-        float s = sinf(eng->p_rot), c = cosf(eng->p_rot);
-        // ИСПРАВЛЕНО: Движение теперь зависит от поворота камеры
-        eng->p_x += (dx * c - dy * s) * 0.15f;
-        eng->p_z += (dx * s + dy * c) * 0.15f;
+        float dx = (eng->joy_cx - eng->joy_sx)/100.0f, dy = (eng->joy_cy - eng->joy_sy)/100.0f;
+        float s = sinf(eng->p_rot_y), c = cosf(eng->p_rot_y);
+        eng->p_x += (dx * c - dy * s) * 0.15f; eng->p_z += (dx * s + dy * c) * 0.15f;
     }
-
     glViewport(0, 0, w, h); glClearColor(0.39f, 0.39f, 0.39f, 1.0f); glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    glUseProgram(eng->prog);
-    glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-    mat4 proj, view, rot, pv, mod, mvp;
+    glUseProgram(eng->prog); glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    mat4 proj, view, rotY, rotX, pv, mod, mvp;
     mat4_perspective(&proj, 1.0f, (float)w/h, 0.1f, 100.0f);
     mat4_id(&view); view.m[12]=-eng->p_x; view.m[13]=-1.6f; view.m[14]=-eng->p_z;
-    mat4_id(&rot); rot.m[0]=cosf(eng->p_rot); rot.m[2]=-sinf(eng->p_rot); rot.m[8]=sinf(eng->p_rot); rot.m[10]=cosf(eng->p_rot);
-    mat4_mul(&pv, &rot, &view); mat4_mul(&pv, &proj, &pv);
-
+    mat4_id(&rotY); rotY.m[0]=cosf(eng->p_rot_y); rotY.m[2]=-sinf(eng->p_rot_y); rotY.m[8]=sinf(eng->p_rot_y); rotY.m[10]=cosf(eng->p_rot_y);
+    mat4_id(&rotX); rotX.m[5]=cosf(eng->p_rot_x); rotX.m[6]=sinf(eng->p_rot_x); rotX.m[9]=-sinf(eng->p_rot_x); rotX.m[10]=cosf(eng->p_rot_x);
+    mat4_mul(&pv, &rotX, &rotY); mat4_mul(&pv, &pv, &view); mat4_mul(&pv, &proj, &pv);
     // ПОЛ
     mat4_id(&mod); mod.m[5]=0.01f; mod.m[0]=500.0f; mod.m[10]=500.0f;
     mat4_mul(&mvp, &pv, &mod); draw_obj(eng, &mvp, 0.4f, 0.45f, 0.4f, 1.0f, 0);
-
     // КУБ
     mat4_id(&mod); mod.m[12]=5.0f; mod.m[13]=1.0f; mod.m[14]=5.0f;
-    // Тень (прозрачная)
-    mat4 shadow_m = mod; shadow_m.m[13]=0.02f; shadow_m.m[5]=0.001f; shadow_m.m[12]+=0.3f;
-    mat4_mul(&mvp, &pv, &shadow_m); draw_obj(eng, &mvp, 0,0,0, 0.4f, 1);
-    // Сам куб
-    mat4_mul(&mvp, &pv, &mod); draw_obj(eng, &mvp, 0.8f, 0.2f, 0.2f, 1.0f, 0);
-
-    // HUD
-    glDisable(GL_DEPTH_TEST);
-    mat4 ortho; mat4_ortho(&ortho, 0, w, h, 0);
-    if (eng->touching_joy) {
-        mat4_id(&mod); mod.m[12]=eng->joy_sx; mod.m[13]=eng->joy_sy; mod.m[0]=160; mod.m[5]=160;
-        mat4_mul(&mvp, &ortho, &mod); draw_obj(eng, &mvp, 1,1,1, 0.3f, 2);
-        mat4_id(&mod); mod.m[12]=eng->joy_cx; mod.m[13]=eng->joy_cy; mod.m[0]=70; mod.m[5]=70;
-        mat4_mul(&mvp, &ortho, &mod); draw_obj(eng, &mvp, 0,0,0, 0.5f, 2);
+    // МЯГКАЯ ТЕНЬ ( Fake RT )
+    for(int i=1; i<=3; i++) {
+        mat4 sm = mod; sm.m[13]=0.01f*i; sm.m[5]=0.001f; sm.m[12]+=0.2f*i; sm.m[14]+=0.1f*i;
+        float scale = 1.0f + 0.1f*i; sm.m[0]*=scale; sm.m[10]*=scale;
+        mat4_mul(&mvp, &pv, &sm); draw_obj(eng, &mvp, 0,0,0, 0.15f, 1);
     }
-    glEnable(GL_DEPTH_TEST);
-    eglSwapBuffers(eng->disp, eng->surf);
+    mat4_mul(&mvp, &pv, &mod); draw_obj(eng, &mvp, 0.8f, 0.2f, 0.2f, 1.0f, 0);
+    // HUD
+    glDisable(GL_DEPTH_TEST); mat4 ortho; mat4_ortho(&ortho, 0, w, h, 0);
+    if (eng->touching_joy) {
+        mat4_id(&mod); mod.m[12]=eng->joy_sx; mod.m[13]=eng->joy_sy; mod.m[0]=180; mod.m[5]=180;
+        mat4_mul(&mvp, &ortho, &mod); draw_obj(eng, &mvp, 1,1,1, 0.2f, 2);
+        mat4_id(&mod); mod.m[12]=eng->joy_cx; mod.m[13]=eng->joy_cy; mod.m[0]=70; mod.m[5]=70;
+        mat4_mul(&mvp, &ortho, &mod); draw_obj(eng, &mvp, 0,0,0, 0.4f, 2);
+    }
+    // КНОПКА НАСТРОЕК (в углу)
+    mat4_id(&mod); mod.m[12]=w-80; mod.m[13]=80; mod.m[0]=100; mod.m[5]=100;
+    mat4_mul(&mvp, &ortho, &mod); draw_obj(eng, &mvp, 0.2,0.8,0.2, 0.5, 2);
+    glEnable(GL_DEPTH_TEST); eglSwapBuffers(eng->disp, eng->surf);
 }
 
 static int32_t handle_input(struct android_app* app, AInputEvent* ev) {
@@ -127,12 +119,19 @@ static int32_t handle_input(struct android_app* app, AInputEvent* ev) {
         int w = ANativeWindow_getWidth(app->window);
         if (action == AMOTION_EVENT_ACTION_DOWN || action == AMOTION_EVENT_ACTION_POINTER_DOWN) {
             if (x < w/2) { eng->touching_joy=1; eng->joy_sx=x; eng->joy_sy=y; eng->joy_cx=x; eng->joy_cy=y; }
-            else { eng->touching_look=1; eng->look_sx=x; }
+            else { eng->touching_look=1; eng->look_sx=x; eng->look_sy=y; }
         } else if (action == AMOTION_EVENT_ACTION_MOVE) {
             for(int i=0; i<AMotionEvent_getPointerCount(ev); i++){
                 float px = AMotionEvent_getX(ev, i), py = AMotionEvent_getY(ev, i);
-                if(px < w/2) { eng->joy_cx=px; eng->joy_cy=py; }
-                else { eng->p_rot -= (px - eng->look_sx) * 0.005f; eng->look_sx=px; }
+                if(px < w/2 && eng->touching_joy) {
+                    float dx = px - eng->joy_sx, dy = py - eng->joy_sy, d = sqrtf(dx*dx+dy*dy);
+                    if(d > 80.0f) { dx*=80.0f/d; dy*=80.0f/d; }
+                    eng->joy_cx = eng->joy_sx + dx; eng->joy_cy = eng->joy_sy + dy;
+                } else if (eng->touching_look) {
+                    eng->p_rot_y += (px - eng->look_sx) * 0.005f; 
+                    eng->p_rot_x = fmaxf(-1.2f, fminf(1.2f, eng->p_rot_x + (py - eng->look_sy) * 0.005f));
+                    eng->look_sx = px; eng->look_sy = py;
+                }
             }
         } else if (action == AMOTION_EVENT_ACTION_UP || action == AMOTION_EVENT_ACTION_POINTER_UP) {
             if (x < w/2) eng->touching_joy=0; else eng->touching_look=0;
