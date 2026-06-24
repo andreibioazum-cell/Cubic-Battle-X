@@ -1,4 +1,4 @@
-name: Build Raylib APK
+name: Build Sokol APK
 on: [push, workflow_dispatch]
 
 jobs:
@@ -12,32 +12,27 @@ jobs:
         with:
           ndk-version: r25c
 
-      - name: Install Raylib and Build
+      - name: Download Sokol Headers
         run: |
-          # 1. Скачиваем Raylib
-          git clone --depth 1 https://github.com/raysan5/raylib.git
-          
-          # 2. Компилируем Raylib под Android (arm64-v8a)
-          cd raylib/src
-          make PLATFORM=PLATFORM_ANDROID \
-               ANDROID_NDK=$ANDROID_NDK_ROOT \
-               ANDROID_ARCH=arm64-v8a \
-               ANDROID_API_VERSION=30 -j$(nproc)
-          cd ../..
+          mkdir -p sokol
+          wget https://raw.githubusercontent.com/floooh/sokol/master/sokol_app.h -O sokol/sokol_app.h
+          wget https://raw.githubusercontent.com/floooh/sokol/master/sokol_gfx.h -O sokol/sokol_gfx.h
+          wget https://raw.githubusercontent.com/floooh/sokol/master/sokol_glue.h -O sokol/sokol_glue.h
 
-          # 3. Компилируем твою игру
+      - name: Build C Code
+        run: |
           $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android30-clang \
-          -shared -fPIC main.c -o libmain.so \
-          -Iraylib/src -Lraylib/src -lraylib -landroid -llog -lEGL -lGLESv2 -lm
+          -shared -fPIC main.c -o libmain.so -Isokol \
+          -I$ANDROID_NDK_ROOT/sources/android/native_app_glue \
+          $ANDROID_NDK_ROOT/sources/android/native_app_glue/android_native_app_glue.c \
+          -landroid -llog -lGLESv2 -lEGL -lm
 
       - name: Package APK
         run: |
-          # Генерируем манифест
           cat <<EOF > AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.cubic.raylib">
-              <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
-              <application android:label="Raylib 3D" android:hasCode="false">
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.cubic.battle">
+              <application android:label="Cubic Sokol" android:hasCode="false">
                   <activity android:name="android.app.NativeActivity" android:exported="true">
                       <meta-data android:name="android.app.lib_name" android:value="main" />
                       <intent-filter>
@@ -48,17 +43,12 @@ jobs:
               </application>
           </manifest>
           EOF
-
           SDK_VERSION=$(ls $ANDROID_HOME/build-tools/ | tail -n 1)
           BUILD_TOOLS=$ANDROID_HOME/build-tools/$SDK_VERSION
           PLATFORM_JAR=$(ls $ANDROID_HOME/platforms/*/android.jar | tail -n 1)
-          
-          mkdir -p staging/lib/arm64-v8a
-          cp libmain.so staging/lib/arm64-v8a/
-
+          mkdir -p staging/lib/arm64-v8a && cp libmain.so staging/lib/arm64-v8a/
           $BUILD_TOOLS/aapt package -f -M AndroidManifest.xml -I $PLATFORM_JAR -F unsigned.apk staging/
           $BUILD_TOOLS/zipalign -v 4 unsigned.apk aligned.apk
-          
           mkdir -p ~/.android
           keytool -genkey -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug, O=Android, C=US"
           $BUILD_TOOLS/apksigner sign --ks ~/.android/debug.keystore --ks-pass pass:android --out final.apk aligned.apk
@@ -66,5 +56,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Raylib-3D-APK
+          name: Cubic-Sokol-APK
           path: final.apk
