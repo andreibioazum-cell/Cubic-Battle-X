@@ -6,7 +6,7 @@
 #include "renderer.h"
 #include "font.h"
 
-// 0-воздух, 1-трава, 2-земля, 3-камень
+// 0-воздух, 1-камень, 2-земля, 3-трава
 static char WORLD[10][10][4];
 
 struct engine {
@@ -18,9 +18,10 @@ struct engine {
     int fps; long last_t;
 };
 
-void draw_box(struct engine* eng, mat4* mvp, float r, float g, float b, int mode) {
+// ИСПРАВЛЕНО: Теперь 7 аргументов (добавлен float a)
+void draw_box(struct engine* eng, mat4* mvp, float r, float g, float b, float a, int mode) {
     glUniformMatrix4fv(eng->mvp_loc, 1, 0, mvp->m);
-    glUniform4f(eng->col_loc, r, g, b, 1.0f);
+    glUniform4f(eng->col_loc, r, g, b, a);
     glUniform1i(eng->mode_loc, mode);
     glVertexAttribPointer(0, 3, GL_FLOAT, 0, 6*4, CUBE); glEnableVertexAttribArray(0);
     glVertexAttribPointer(1, 3, GL_FLOAT, 0, 6*4, &CUBE[3]); glEnableVertexAttribArray(1);
@@ -32,10 +33,12 @@ void draw_text(struct engine* eng, int val, float x, float y, mat4* ortho) {
     for(int i=0; i<len; i++) {
         int d = buf[i] - '0';
         for(int py=0; py<5; py++) for(int px=0; px<3; px++) {
+            // Читаем битовую маску из font.h
             if((FONT_DATA[d*3 + py/2] >> (2-px)) & 1) {
                 mat4 mo, mv; mat4_id(&mo); 
-                mo.m[12]=x + i*40 + px*10; mo.m[13]=y + py*10; mo.m[0]=10; mo.m[5]=10;
-                mat4_mul(&mv, ortho, &mo); draw_box(eng, &mv, 1, 1, 0, 2);
+                mo.m[12]=x + i*45 + px*12; mo.m[13]=y + py*12; mo.m[0]=12; mo.m[5]=12;
+                mat4_mul(&mv, ortho, &mo); 
+                draw_box(eng, &mv, 1, 1, 0, 1.0f, 2); // Желтый текст
             }
         }
     }
@@ -54,36 +57,40 @@ static void draw(struct engine* eng) {
     if (eng->tj) {
         float dx=(eng->jcx-eng->jsx)/100.0f, dz=(eng->jcy-eng->jsy)/100.0f;
         float s=sinf(eng->ry), c=cosf(eng->ry);
-        eng->x += (dx*c-dz*s)*0.2f; eng->z += (dx*s+dz*c)*0.2f;
+        eng->x += (dx*c-dz*s)*0.18f; eng->z += (dx*s+dz*c)*0.18f;
     }
 
     glViewport(0, 0, w, h); glClearColor(0.5f, 0.8f, 1.0f, 1.0f); glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
     glUseProgram(eng->prog); glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     mat4 pr, vi, rY, rX, pv, mo, mv;
-    mat4_perspective(&pr, 1.0f, (float)w/h, 0.1f, 50.0f);
-    mat4_id(&vi); vi.m[12]=-eng->x; vi.m[13]=-eng->y-2.0f; vi.m[14]=-eng->z;
+    mat4_perspective(&pr, 1.0f, (float)w/h, 0.1f, 60.0f);
+    mat4_id(&vi); vi.m[12]=-eng->x; vi.m[13]=-eng->y-2.2f; vi.m[14]=-eng->z;
     mat4_id(&rY); rY.m[0]=cosf(eng->ry); rY.m[2]=-sinf(eng->ry); rY.m[8]=sinf(eng->ry); rY.m[10]=cosf(eng->ry);
     mat4_id(&rX); rX.m[5]=cosf(eng->rx); rX.m[6]=sinf(eng->rx); rX.m[9]=-sinf(eng->rx); rX.m[10]=cosf(eng->rx);
     mat4_mul(&pv, &rX, &rY); mat4_mul(&pv, &pv, &vi); mat4_mul(&pv, &pr, &pv);
 
+    // Рисуем блоки
     for(int ix=0; ix<10; ix++) for(int iz=0; iz<10; iz++) for(int iy=0; iy<3; iy++) {
         if(WORLD[ix][iz][iy] == 0) continue;
-        mat4_id(&mo); mo.m[12]=ix; mo.m[13]=iy; mo.m[14]=iz;
+        mat4_id(&mo); mo.m[12]=ix*1.1f; mo.m[13]=iy*1.1f; mo.m[14]=iz*1.1f;
         mat4_mul(&mv, &pv, &mo);
-        if(iy == 2) draw_box(eng, &mv, 0.2f, 0.8f, 0.2f, 0); // Трава
-        else if(iy == 1) draw_box(eng, &mv, 0.5f, 0.3f, 0.1f, 0); // Земля
-        else draw_box(eng, &mv, 0.5f, 0.5f, 0.5f, 0); // Камень
+        if(iy == 2) draw_box(eng, &mv, 0.3f, 0.7f, 0.3f, 1.0f, 0); // Трава
+        else if(iy == 1) draw_box(eng, &mv, 0.5f, 0.35f, 0.2f, 1.0f, 0); // Земля
+        else draw_box(eng, &mv, 0.5f, 0.5f, 0.55f, 1.0f, 0); // Камень
     }
 
+    // HUD (Интерфейс)
     glDisable(GL_DEPTH_TEST); mat4 or; mat4_id(&or); or.m[0]=2.0f/w; or.m[5]=-2.0f/h; or.m[12]=-1; or.m[13]=1;
     if (eng->tj) {
-        mat4_id(&mo); mo.m[12]=eng->jsx; mo.m[13]=eng->jsy; mo.m[0]=150; mo.m[5]=150;
-        mat4_mul(&mv, &or, &mo); draw_box(eng, &mv, 1, 1, 1, 0.3f, 2);
-        mat4_id(&mo); mo.m[12]=eng->jcx; mo.m[13]=eng->jcy; mo.m[0]=60; mo.m[5]=60;
-        mat4_mul(&mv, &or, &mo); draw_box(eng, &mv, 0, 0, 0, 0.5f, 2);
+        mat4_id(&mo); mo.m[12]=eng->jsx; mo.m[13]=eng->jsy; mo.m[0]=180; mo.m[5]=180;
+        mat4_mul(&mv, &or, &mo); draw_box(eng, &mv, 1, 1, 1, 0.3f, 2); // Кольцо
+        mat4_id(&mo); mo.m[12]=eng->jcx; mo.m[13]=eng->jcy; mo.m[0]=70; mo.m[5]=70;
+        mat4_mul(&mv, &or, &mo); draw_box(eng, &mv, 0, 0, 0, 0.6f, 2); // Стик
     }
-    draw_text(eng, eng->fps, w - 150, 50, &or);
+    // Рисуем FPS текст
+    draw_text(eng, eng->fps, w - 200, 60, &or);
+    
     glEnable(GL_DEPTH_TEST); eglSwapBuffers(eng->disp, eng->surf);
 }
 
@@ -99,15 +106,20 @@ static int32_t handle_input(struct android_app* app, AInputEvent* ev) {
     } else if (a == AMOTION_EVENT_ACTION_MOVE) {
         for(int p=0; p<AMotionEvent_getPointerCount(ev); p++) {
             float px=AMotionEvent_getX(ev,p), py=AMotionEvent_getY(ev,p);
-            if(px<w/2) { float dx=px-eng->jsx, dy=py-eng->jsy, d=sqrtf(dx*dx+dy*dy); if(d>70) {dx*=70/d; dy*=70/d;} eng->jcx=eng->jsx+dx; eng->jcy=eng->jsy+dy; }
-            else { 
-                // ИСПРАВЛЕННАЯ ИНВЕРСИЯ: Плюс вместо минуса
-                eng->ry += (px-eng->lsx)*0.005f; 
-                eng->rx = fmaxf(-1.4f, fminf(1.4f, eng->rx+(py-eng->lsy)*0.005f)); 
+            if(px<w/2) { 
+                float dx=px-eng->jsx, dy=py-eng->jsy, d=sqrtf(dx*dx+dy*dy); 
+                if(d>80) {dx*=80/d; dy*=80/d;} 
+                eng->jcx=eng->jsx+dx; eng->jcy=eng->jsy+dy; 
+            } else { 
+                // Неинвертированная камера (Вправо тянешь - вправо смотришь)
+                eng->ry += (px-eng->lsx)*0.006f; 
+                eng->rx = fmaxf(-1.4f, fminf(1.4f, eng->rx+(py-eng->lsy)*0.006f)); 
                 eng->lsx=px; eng->lsy=py; 
             }
         }
-    } else if (a == AMOTION_EVENT_ACTION_UP || a == AMOTION_EVENT_ACTION_POINTER_UP) { if (x<w/2) eng->tj=0; else eng->tl=0; }
+    } else if (a == AMOTION_EVENT_ACTION_UP || a == AMOTION_EVENT_ACTION_POINTER_UP) { 
+        if (x<w/2) eng->tj=0; else eng->tl=0; 
+    }
     return 1;
 }
 
