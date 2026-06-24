@@ -12,32 +12,37 @@ jobs:
         with:
           ndk-version: r25c
 
-      - name: Build Shared Library
+      - name: Build C Code
         run: |
-          # Компилируем C код под aarch64 (64 бит)
+          # Компиляция под 64-бит (aarch64) - идеально для Tecno Spark Go 1
           $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android30-clang \
-          -shared main.c -o libmain.so -landroid -llog -lEGL -lGLESv2 \
+          -shared -fPIC main.c -o libmain.so \
           -I$ANDROID_NDK_ROOT/sources/android/native_app_glue \
-          $ANDROID_NDK_ROOT/sources/android/native_app_glue/android_native_app_glue.c
+          $ANDROID_NDK_ROOT/sources/android/native_app_glue/android_native_app_glue.c \
+          -landroid -llog -lEGL -lGLESv2
 
-      - name: Package APK
+      - name: Create APK Structure
         run: |
-          # Создаем структуру папок APK
-          mkdir -p build/lib/arm64-v8a
-          mv libmain.so build/lib/arm64-v8a/
-          
-          # Упаковка через aapt
-          export PATH=$PATH:$ANDROID_HOME/build-tools/30.0.3
-          aapt package -f -M AndroidManifest.xml -I $ANDROID_HOME/platforms/android-30/android.jar -F test.apk build/
-          
-          # Подпись (дебаг ключом)
-          debug_keystore=~/.android/debug.keystore
+          mkdir -p staging/lib/arm64-v8a
+          cp libmain.so staging/lib/arm64-v8a/
+
+      - name: Package and Sign APK
+        run: |
+          # 1. Упаковка ресурсов
+          $ANDROID_HOME/build-tools/30.0.3/aapt package -f -M AndroidManifest.xml \
+          -I $ANDROID_HOME/platforms/android-30/android.jar \
+          -F unsigned.apk staging/
+
+          # 2. Выравнивание (важно для Android 14)
+          $ANDROID_HOME/build-tools/30.0.3/zipalign -v 4 unsigned.apk aligned.apk
+
+          # 3. Создание ключа и подпись
           mkdir -p ~/.android
-          keytool -genkey -v -keystore $debug_keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug, O=Android, C=US"
-          apksigner sign --ks $debug_keystore --ks-pass pass:android test.apk
+          keytool -genkey -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug, O=Android, C=US"
+          $ANDROID_HOME/build-tools/30.0.3/apksigner sign --ks ~/.android/debug.keystore --ks-pass pass:android --out final.apk aligned.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: CubicBattle-C-APK
-          path: test.apk
+          path: final.apk
