@@ -6,6 +6,16 @@
 
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "CubicBattle", __VA_ARGS__)
 
+struct engine {
+    struct android_app* app;
+    EGLDisplay display;
+    EGLSurface surface;
+    EGLContext context;
+    GLuint program;
+    GLuint mvp_loc;
+    float angle;
+};
+
 // Математика куба
 void matrix_perspective(float* m, float fov, float aspect, float near, float far) {
     float f = 1.0f / tanf(fov * 0.5f);
@@ -18,11 +28,6 @@ void matrix_rotate_y(float* m, float angle) {
     m[0]=cosf(angle); m[2]=-sinf(angle); m[5]=1; m[8]=sinf(angle); m[10]=cosf(angle); m[15]=1;
     m[14]=-3.0f; // Отодвигаем камеру
 }
-
-struct engine {
-    struct android_app* app; EGLDisplay display; EGLSurface surface; EGLContext context;
-    GLuint program; GLuint mvp_loc; float angle;
-};
 
 static void init_gl(struct engine* eng) {
     eng->display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
@@ -64,12 +69,28 @@ static void draw(struct engine* eng) {
     eng->angle += 0.03f;
 }
 
+// ОТДЕЛЬНАЯ ФУНКЦИЯ ОБРАБОТКИ КОМАНД (Вместо лямбды)
+static void handle_cmd(struct android_app* app, int32_t cmd) {
+    struct engine* eng = (struct engine*)app->userData;
+    if (cmd == APP_CMD_INIT_WINDOW) {
+        init_gl(eng);
+    } else if (cmd == APP_CMD_TERM_WINDOW) {
+        eng->display = NULL;
+    }
+}
+
 void android_main(struct android_app* s) {
-    struct engine e = {0}; s->userData = &e; e.app = s;
-    s->onAppCmd = [](struct android_app* a, int32_t c){ if(c==APP_CMD_INIT_WINDOW) init_gl((struct engine*)a->userData); };
+    struct engine e = {0};
+    s->userData = &e;
+    e.app = s;
+    s->onAppCmd = handle_cmd; // Присваиваем функцию
+
     while(1) {
         int ev; struct android_poll_source* src;
-        while(ALooper_pollOnce(e.display?0:-1, 0, &ev, (void**)&src)>=0) { if(src) src->process(s, src); if(s->destroyRequested) return; }
+        while(ALooper_pollOnce(e.display ? 0 : -1, 0, &ev, (void**)&src) >= 0) {
+            if(src) src->process(s, src);
+            if(s->destroyRequested) return;
+        }
         if(e.display) draw(&e);
     }
 }
