@@ -1,4 +1,4 @@
-name: Build Universal APK
+name: Build Raylib APK
 on: [push, workflow_dispatch]
 
 jobs:
@@ -12,29 +12,32 @@ jobs:
         with:
           ndk-version: r25c
 
-      - name: Build Libraries (32 and 64 bit)
+      - name: Install Raylib and Build
         run: |
-          # 64-bit
-          $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android34-clang \
-          -shared -fPIC main.c -o libmain_64.so \
-          -I$ANDROID_NDK_ROOT/sources/android/native_app_glue \
-          $ANDROID_NDK_ROOT/sources/android/native_app_glue/android_native_app_glue.c \
-          -landroid -llog -lEGL -lGLESv2 -lm
+          # 1. Скачиваем Raylib
+          git clone --depth 1 https://github.com/raysan5/raylib.git
+          
+          # 2. Компилируем Raylib под Android (arm64-v8a)
+          cd raylib/src
+          make PLATFORM=PLATFORM_ANDROID \
+               ANDROID_NDK=$ANDROID_NDK_ROOT \
+               ANDROID_ARCH=arm64-v8a \
+               ANDROID_API_VERSION=30 -j$(nproc)
+          cd ../..
 
-          # 32-bit
-          $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi34-clang \
-          -shared -fPIC main.c -o libmain_32.so \
-          -I$ANDROID_NDK_ROOT/sources/android/native_app_glue \
-          $ANDROID_NDK_ROOT/sources/android/native_app_glue/android_native_app_glue.c \
-          -landroid -llog -lEGL -lGLESv2 -lm
+          # 3. Компилируем твою игру
+          $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android30-clang \
+          -shared -fPIC main.c -o libmain.so \
+          -Iraylib/src -Lraylib/src -lraylib -landroid -llog -lEGL -lGLESv2 -lm
 
-      - name: Create APK
+      - name: Package APK
         run: |
+          # Генерируем манифест
           cat <<EOF > AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.cubic.battle">
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.cubic.raylib">
               <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
-              <application android:label="Cubic Battle 3D" android:hasCode="false">
+              <application android:label="Raylib 3D" android:hasCode="false">
                   <activity android:name="android.app.NativeActivity" android:exported="true">
                       <meta-data android:name="android.app.lib_name" android:value="main" />
                       <intent-filter>
@@ -45,14 +48,13 @@ jobs:
               </application>
           </manifest>
           EOF
-          
+
           SDK_VERSION=$(ls $ANDROID_HOME/build-tools/ | tail -n 1)
           BUILD_TOOLS=$ANDROID_HOME/build-tools/$SDK_VERSION
           PLATFORM_JAR=$(ls $ANDROID_HOME/platforms/*/android.jar | tail -n 1)
           
-          mkdir -p staging/lib/arm64-v8a staging/lib/armeabi-v7a
-          cp libmain_64.so staging/lib/arm64-v8a/libmain.so
-          cp libmain_32.so staging/lib/armeabi-v7a/libmain.so
+          mkdir -p staging/lib/arm64-v8a
+          cp libmain.so staging/lib/arm64-v8a/
 
           $BUILD_TOOLS/aapt package -f -M AndroidManifest.xml -I $PLATFORM_JAR -F unsigned.apk staging/
           $BUILD_TOOLS/zipalign -v 4 unsigned.apk aligned.apk
@@ -64,5 +66,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: CubicBattle-3D-APK
+          name: Raylib-3D-APK
           path: final.apk
