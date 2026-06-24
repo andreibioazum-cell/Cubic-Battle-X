@@ -1,27 +1,43 @@
-[package]
-name = "cubicbattle"
-version = "0.1.0"
-edition = "2021"
+name: Build APK
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
 
-[lib]
-name = "cubicbattle"
-# ВОТ ЭТА СТРОКА РЕШАЕТ ПРОБЛЕМУ:
-path = "src/main.rs"
-crate-type = ["cdylib"]
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-[dependencies]
-macroquad = "0.4"
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
 
-[package.metadata.android]
-package_name = "com.cubicbattle.x"
-label = "Cubic Battle X"
-target_sdk_version = 30
-min_sdk_version = 21
-build_targets = ["aarch64-linux-android"]
-assets = "assets"
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
 
-# Секцию [[bin]] можно оставить или удалить, 
-# но для Android важнее блок [lib] выше.
-[[bin]]
-name = "cubicbattle-bin"
-path = "src/main.rs"
+      - name: Install Android Components
+        run: |
+          echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "platforms;android-30" "build-tools;30.0.3" "ndk;25.2.9519653"
+
+      - name: Install cargo-apk
+        run: cargo install cargo-apk
+
+      - name: Build APK
+        run: |
+          mkdir -p assets
+          export ANDROID_HOME=/usr/local/lib/android/sdk
+          export ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/25.2.9519653
+          cargo apk build
+        
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CubicBattle-APK
+          path: target/debug/apk/cubicbattle.apk
