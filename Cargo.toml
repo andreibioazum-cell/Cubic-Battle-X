@@ -2,7 +2,6 @@
 name = "cubicbattle"
 version = "0.1.0"
 edition = "2021"
-# Запрещаем искать бинарники, работаем только через библиотеку
 autobins = false
 
 [lib]
@@ -18,6 +17,5 @@ package_name = "com.cubicbattle.x"
 label = "Cubic Battle X"
 target_sdk_version = 30
 min_sdk_version = 21
-# Собираем под оба типа процессоров для надежности
 build_targets = ["aarch64-linux-android", "armv7-linux-androideabi"]
 assets = "assets"
