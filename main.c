@@ -1,12 +1,15 @@
+#include <android/log.h>
 #include <android_native_app_glue.h>
 #include <EGL/egl.h>
 #include <GLES2/gl2.h>
 
-void android_main(struct android_app* state) {
-    // Инициализация окна
-    ANativeWindow_acquire(state->window);
+#define LOG_TAG "CubicBattle"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 
-    // Настройка EGL (связь между системой и OpenGL)
+void android_main(struct android_app* state) {
+    LOGI("Игра запущена!");
+
+    // Инициализация графики
     EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     eglInitialize(display, 0, 0);
 
@@ -18,27 +21,18 @@ void android_main(struct android_app* state) {
     EGLContext context = eglCreateContext(display, config, NULL, (EGLint[]){EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE});
     eglMakeCurrent(display, surface, surface, context);
 
-    float angle = 0.0f;
-
     while (1) {
-        // Очистка экрана (красный цвет, чтобы мы видели, что работает)
-        glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
-
-        // Здесь будет твой 3D код
-        // Для начала просто меняем цвет фона в цикле
-        angle += 0.01f;
-        if (angle > 1.0f) angle = 0.0f;
-        glClearColor(angle, 0.3f, 0.3f, 1.0f);
-
-        eglSwapBuffers(display, surface);
-
-        // Обработка системных событий
         int events;
         struct android_poll_source* source;
-        if (ALooper_pollAll(0, NULL, &events, (void**)&source) >= 0) {
+        while (ALooper_pollAll(0, NULL, &events, (void**)&source) >= 0) {
             if (source != NULL) source->process(state, source);
             if (state->destroyRequested != 0) return;
         }
+
+        // Рисуем: просто очищаем экран бирюзовым цветом
+        glClearColor(0.0f, 0.5f, 0.5f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        eglSwapBuffers(display, surface);
     }
 }
