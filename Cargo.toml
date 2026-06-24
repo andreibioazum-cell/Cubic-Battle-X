@@ -2,28 +2,22 @@
 name = "cubicbattle"
 version = "0.1.0"
 edition = "2021"
+# Это отключает автоматическое создание бинарника из main.rs
+# Теперь не будет конфликта "Bin is not compatible with Cdylib"
+autobins = false
 
 [lib]
-# Имя библиотеки (будет libcubicbattle.so внутри APK)
 name = "cubicbattle"
-# Указываем, что основной код игры в src/main.rs
 path = "src/main.rs"
-# Тип библиотеки, который требует Android
 crate-type = ["cdylib"]
 
 [dependencies]
-# Легкий движок без GC
 macroquad = "0.4"
 
 [package.metadata.android]
-# Уникальный ID приложения
 package_name = "com.cubicbattle.x"
-# Название на экране телефона
 label = "Cubic Battle X"
-# Версии SDK (соответствуют нашему YAML)
 target_sdk_version = 30
 min_sdk_version = 21
-# Архитектура (современные смартфоны)
 build_targets = ["aarch64-linux-android"]
-# Папка для ресурсов
 assets = "assets"
