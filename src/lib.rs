@@ -1,13 +1,36 @@
 use macroquad::prelude::*;
+use std::sync::{Arc, Mutex};
+
+// Создаем хранилище для текста ошибки
+lazy_static::lazy_static! {
+    static ref PANIC_MESSAGE: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+}
 
 #[macroquad::main("CubicBattle")]
 async fn main() {
-    let mut rotation = 0.0;
+    // Настраиваем перехватчик ошибок
+    std::panic::set_hook(Box::new(|info| {
+        let msg = format!("CRASH! Error: {}", info);
+        if let Ok(mut storage) = PANIC_MESSAGE.lock() {
+            *storage = Some(msg);
+        }
+    }));
 
     loop {
-        clear_background(BLACK);
+        // Проверяем, не случилась ли ошибка
+        if let Ok(storage) = PANIC_MESSAGE.lock() {
+            if let Some(ref msg) = *storage {
+                clear_background(RED);
+                draw_text("GAME CRASHED!", 20.0, 50.0, 40.0, WHITE);
+                draw_text(msg, 20.0, 100.0, 20.0, YELLOW);
+                next_frame().await;
+                continue; // Не идем дальше в игру
+            }
+        }
 
-        // Настройка 3D камеры
+        // Сама игра
+        clear_background(BLACK);
+        
         set_camera(&Camera3D {
             position: vec3(5.0, 5.0, 5.0),
             up: vec3(0.0, 1.0, 0.0),
@@ -15,25 +38,11 @@ async fn main() {
             ..Default::default()
         });
 
-        // Рисуем сетку на полу
-        draw_grid(20, 1.0, LIGHTGRAY, GRAY);
+        draw_grid(10, 1.0, BLUE, DARKBLUE);
+        draw_cube(vec3(0.0, 1.0, 0.0), vec3(2.0, 2.0, 2.0), None, WHITE);
 
-        // Рисуем вращающийся куб
-        rotation += 0.01;
-        draw_cube(
-            vec3(0.0, 1.0, 0.0), 
-            vec3(2.0, 2.0, 2.0), 
-            None, 
-            Color::from_rgba(100, 200, 255, 255)
-        );
-        
-        // Рисуем линии куба поверх (wireframe)
-        draw_cube_wires(vec3(0.0, 1.0, 0.0), vec3(2.0, 2.0, 2.0), BLACK);
-
-        // Возвращаемся в 2D режим для текста/интерфейса
         set_default_camera();
-        draw_text("Cubic Battle - No GC - Rust", 20.0, 30.0, 30.0, WHITE);
-        draw_text(&format!("FPS: {}", get_fps()), 20.0, 60.0, 30.0, GREEN);
+        draw_text(&format!("FPS: {}", get_fps()), 10.0, 20.0, 20.0, GREEN);
 
         next_frame().await
     }
