@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.cubic.battle">
-    <application android:label="CubicBattleC" android:hasCode="false">
-        <activity android:name="android.app.NativeActivity" android:configChanges="orientation|keyboardHidden">
+    <application android:label="Cubic Battle C" android:hasCode="false">
+        <activity android:name="android.app.NativeActivity" 
+                  android:configChanges="orientation|screenSize|keyboardHidden"
+                  android:exported="true">
             <meta-data android:name="android.app.lib_name" android:value="main" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
