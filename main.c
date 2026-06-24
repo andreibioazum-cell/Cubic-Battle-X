@@ -4,25 +4,27 @@
 #include <GLES2/gl2.h>
 #include <math.h>
 
-// Математика матриц
-void mat4_perspective(float* m, float fov, float aspect, float near, float far) {
+typedef struct { float m[16]; } mat4;
+
+mat4 mat4_perspective(float fov, float aspect, float near, float far) {
+    mat4 res = {0};
     float f = 1.0f / tanf(fov * 0.5f);
-    for (int i = 0; i < 16; i++) m[i] = 0;
-    m[0] = f / aspect; m[5] = f;
-    m[10] = (far + near) / (near - far); m[11] = -1.0f;
-    m[14] = (2.0f * far * near) / (near - far);
+    res.m[0] = f / aspect; res.m[5] = f;
+    res.m[10] = (far + near) / (near - far); res.m[11] = -1.0f;
+    res.m[14] = (2.0f * far * near) / (near - far);
+    return res;
 }
 
-void mat4_rotate(float* m, float angle) {
-    for (int i = 0; i < 16; i++) m[i] = 0;
-    m[0] = cosf(angle); m[2] = sinf(angle);
-    m[5] = 1.0f; m[8] = -sinf(angle);
-    m[10] = cosf(angle); m[15] = 1.0f;
+mat4 mat4_rotation(float angle) {
+    mat4 res = {0};
+    res.m[0] = res.m[15] = 1.0f; res.m[5] = cosf(angle);
+    res.m[6] = sinf(angle); res.m[9] = -sinf(angle); res.m[10] = cosf(angle);
+    return res;
 }
 
 struct engine {
     struct android_app* app; EGLDisplay display; EGLSurface surface; EGLContext context;
-    GLuint prog; GLint mvp_loc; float angle;
+    GLuint program; GLuint vbo; GLint mvp_loc; float angle;
 };
 
 static void init_gl(struct engine* eng) {
@@ -34,43 +36,52 @@ static void init_gl(struct engine* eng) {
     eng->context = eglCreateContext(eng->display, config, NULL, (EGLint[]){EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE});
     eglMakeCurrent(eng->display, eng->surface, eng->surface, eng->context);
 
-    const char* vs = "attribute vec4 p; attribute vec4 c; varying vec4 v; uniform mat4 m; void main(){gl_Position=m*p; v=c;}";
-    const char* fs = "precision mediump float; varying vec4 v; void main(){gl_FragColor=v;}";
+    const char* vs = "precision highp float; attribute vec3 p; attribute vec3 c; varying vec4 v; uniform mat4 m; void main(){gl_Position=m*vec4(p,1.0); v=vec4(c,1.0);}";
+    const char* fs = "precision highp float; varying vec4 v; void main(){gl_FragColor=v;}";
+    
     GLuint vsh = glCreateShader(GL_VERTEX_SHADER); glShaderSource(vsh,1,&vs,0); glCompileShader(vsh);
     GLuint fsh = glCreateShader(GL_FRAGMENT_SHADER); glShaderSource(fsh,1,&fs,0); glCompileShader(fsh);
-    eng->prog = glCreateProgram(); glAttachShader(eng->prog,vsh); glAttachShader(eng->prog,fsh); glLinkProgram(eng->prog);
-    eng->mvp_loc = glGetUniformLocation(eng->prog, "m");
+    eng->program = glCreateProgram(); glAttachShader(eng->program,vsh); glAttachShader(eng->program,fsh); glLinkProgram(eng->program);
+    eng->mvp_loc = glGetUniformLocation(eng->program, "m");
+
+    float verts[] = {
+        -0.5,-0.5, 0.5, 1,0,0,  0.5,-0.5, 0.5, 0,1,0,  0.5, 0.5, 0.5, 0,0,1, -0.5, 0.5, 0.5, 1,1,0,
+        -0.5,-0.5,-0.5, 1,0,1,  0.5,-0.5,-0.5, 0,1,1,  0.5, 0.5,-0.5, 1,1,1, -0.5, 0.5,-0.5, 0,0,0,
+        -0.5, 0.5, 0.5, 1,0,0,  0.5, 0.5, 0.5, 0,1,0,  0.5, 0.5,-0.5, 0,0,1, -0.5, 0.5,-0.5, 1,1,0,
+        -0.5,-0.5, 0.5, 1,0,1,  0.5,-0.5, 0.5, 0,1,1,  0.5,-0.5,-0.5, 1,1,1, -0.5,-0.5,-0.5, 0,0,0
+    };
+    glGenBuffers(1, &eng->vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, eng->vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STATIC_DRAW);
     glEnable(GL_DEPTH_TEST);
 }
 
 static void draw(struct engine* eng) {
     if (!eng->display) return;
-    glClearColor(0.1f, 0.2f, 0.3f, 1.0f); glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    glUseProgram(eng->prog);
+    int w = ANativeWindow_getWidth(eng->app->window);
+    int h = ANativeWindow_getHeight(eng->app->window);
+    glViewport(0, 0, w, h);
+    glClearColor(0.1f, 0.15f, 0.2f, 1.0f); glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glUseProgram(eng->program);
 
-    float vertices[] = {
-        -0.5,-0.5,0.5, 1,0,0,  0.5,-0.5,0.5, 0,1,0,  0.5,0.5,0.5, 0,0,1, -0.5,0.5,0.5, 1,1,0,
-        -0.5,-0.5,-0.5, 1,0,1, 0.5,-0.5,-0.5, 0,1,1,  0.5,0.5,-0.5, 1,1,1, -0.5,0.5,-0.5, 0,0,0
-    };
-    unsigned short indices[] = {0,1,2, 2,3,0, 4,5,6, 6,7,4, 4,0,3, 3,7,4, 1,5,6, 6,2,1, 3,2,6, 6,7,3, 4,5,1, 1,0,4};
+    mat4 proj = mat4_perspective(1.0f, (float)w/(float)h, 0.1f, 100.0f);
+    mat4 rot = mat4_rotation(eng->angle);
+    rot.m[14] = -2.5f; // Отодвигаем куб
 
-    float proj[16], model[16], mvp[16];
-    mat4_perspective(proj, 1.0f, (float)ANativeWindow_getWidth(eng->app->window)/ANativeWindow_getHeight(eng->app->window), 0.1f, 10.0f);
-    mat4_rotate(model, eng->angle);
-    model[14] = -3.0f; // Дистанция
+    mat4 mvp = {0};
+    for(int i=0; i<4; i++) for(int j=0; j<4; j++)
+        for(int k=0; k<4; k++) mvp.m[i*4+j] += proj.m[i*4+k] * rot.m[k*4+j];
 
-    // Перемножение mvp = proj * model
-    for(int i=0; i<4; i++) for(int j=0; j<4; j++) {
-        mvp[i*4+j] = 0;
-        for(int k=0; k<4; k++) mvp[i*4+j] += proj[i*4+k] * model[k*4+j];
-    }
+    glUniformMatrix4fv(eng->mvp_loc, 1, 0, mvp.m);
+    glBindBuffer(GL_ARRAY_BUFFER, eng->vbo);
+    glVertexAttribPointer(0, 3, GL_FLOAT, 0, 6*4, 0); glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, 0, 6*4, (void*)(3*4)); glEnableVertexAttribArray(1);
 
-    glUniformMatrix4fv(eng->mvp_loc, 1, 0, mvp);
-    glVertexAttribPointer(0, 3, GL_FLOAT, 0, 6*4, vertices); glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 3, GL_FLOAT, 0, 6*4, &vertices[3]); glEnableVertexAttribArray(1);
-    glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_SHORT, indices);
+    glDrawArrays(GL_TRIANGLE_FAN, 0, 4); glDrawArrays(GL_TRIANGLE_FAN, 4, 4);
+    glDrawArrays(GL_TRIANGLE_FAN, 8, 4); glDrawArrays(GL_TRIANGLE_FAN, 12, 4);
+    
     eglSwapBuffers(eng->display, eng->surface);
-    eng->angle += 0.02f;
+    eng->angle += 0.03f;
 }
 
 static void handle_cmd(struct android_app* app, int32_t cmd) {
