@@ -4,28 +4,34 @@
 #include <GLES2/gl2.h>
 #include <math.h>
 
-typedef struct { float m[16]; } mat4;
-
-mat4 mat4_perspective(float fov, float aspect, float near, float far) {
-    mat4 res = {0};
-    float f = 1.0f / tanf(fov * 0.5f);
-    res.m[0] = f / aspect; res.m[5] = f;
-    res.m[10] = (far + near) / (near - far); res.m[11] = -1.0f;
-    res.m[14] = (2.0f * far * near) / (near - far);
-    return res;
-}
-
-mat4 mat4_rotation(float angle) {
-    mat4 res = {0};
-    res.m[0] = res.m[15] = 1.0f; res.m[5] = cosf(angle);
-    res.m[6] = sinf(angle); res.m[9] = -sinf(angle); res.m[10] = cosf(angle);
-    return res;
-}
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "CubicBattle", __VA_ARGS__)
 
 struct engine {
     struct android_app* app; EGLDisplay display; EGLSurface surface; EGLContext context;
-    GLuint program; GLuint vbo; GLint mvp_loc; float angle;
+    GLuint program; GLint mvp_loc; float angle;
 };
+
+// Функция для создания матрицы проекции
+void get_projection(float* m, float aspect) {
+    float fov = 1.0f / tanf(45.0f * 0.5f * M_PI / 180.0f);
+    float near = 0.1f, far = 100.0f;
+    for(int i=0; i<16; i++) m[i]=0;
+    m[0] = fov / aspect; m[5] = fov;
+    m[10] = (far + near) / (near - far); m[11] = -1.0f;
+    m[14] = (2.0f * far * near) / (near - far);
+}
+
+// Функция для создания матрицы вращения и перемещения
+void get_model_view(float* m, float angle) {
+    for(int i=0; i<16; i++) m[i]=0;
+    float s = sinf(angle), c = cosf(angle);
+    // Вращение вокруг Y и X одновременно
+    m[0] = c;  m[2] = -s;
+    m[4] = s*s; m[5] = c; m[6] = c*s;
+    m[8] = s*c; m[9] = -s; m[10] = c*c;
+    m[15] = 1.0f;
+    m[14] = -3.0f; // Отодвигаем куб назад на 3 единицы
+}
 
 static void init_gl(struct engine* eng) {
     eng->display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
@@ -36,23 +42,16 @@ static void init_gl(struct engine* eng) {
     eng->context = eglCreateContext(eng->display, config, NULL, (EGLint[]){EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE});
     eglMakeCurrent(eng->display, eng->surface, eng->surface, eng->context);
 
-    const char* vs = "precision highp float; attribute vec3 p; attribute vec3 c; varying vec4 v; uniform mat4 m; void main(){gl_Position=m*vec4(p,1.0); v=vec4(c,1.0);}";
-    const char* fs = "precision highp float; varying vec4 v; void main(){gl_FragColor=v;}";
+    // Шейдеры с высокой точностью
+    const char* vs = 
+        "uniform mat4 u_proj; uniform mat4 u_model; attribute vec4 a_pos; attribute vec4 a_col; "
+        "varying vec4 v_col; void main() { gl_Position = u_proj * u_model * a_pos; v_col = a_col; }";
+    const char* fs = "precision highp float; varying vec4 v_col; void main() { gl_FragColor = v_col; }";
     
     GLuint vsh = glCreateShader(GL_VERTEX_SHADER); glShaderSource(vsh,1,&vs,0); glCompileShader(vsh);
     GLuint fsh = glCreateShader(GL_FRAGMENT_SHADER); glShaderSource(fsh,1,&fs,0); glCompileShader(fsh);
-    eng->program = glCreateProgram(); glAttachShader(eng->program,vsh); glAttachShader(eng->program,fsh); glLinkProgram(eng->program);
-    eng->mvp_loc = glGetUniformLocation(eng->program, "m");
-
-    float verts[] = {
-        -0.5,-0.5, 0.5, 1,0,0,  0.5,-0.5, 0.5, 0,1,0,  0.5, 0.5, 0.5, 0,0,1, -0.5, 0.5, 0.5, 1,1,0,
-        -0.5,-0.5,-0.5, 1,0,1,  0.5,-0.5,-0.5, 0,1,1,  0.5, 0.5,-0.5, 1,1,1, -0.5, 0.5,-0.5, 0,0,0,
-        -0.5, 0.5, 0.5, 1,0,0,  0.5, 0.5, 0.5, 0,1,0,  0.5, 0.5,-0.5, 0,0,1, -0.5, 0.5,-0.5, 1,1,0,
-        -0.5,-0.5, 0.5, 1,0,1,  0.5,-0.5, 0.5, 0,1,1,  0.5,-0.5,-0.5, 1,1,1, -0.5,-0.5,-0.5, 0,0,0
-    };
-    glGenBuffers(1, &eng->vbo);
-    glBindBuffer(GL_ARRAY_BUFFER, eng->vbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STATIC_DRAW);
+    eng->program = glCreateProgram(); glAttachShader(eng->program,vsh); glAttachShader(eng->program,fsh);
+    glLinkProgram(eng->program);
     glEnable(GL_DEPTH_TEST);
 }
 
@@ -64,24 +63,27 @@ static void draw(struct engine* eng) {
     glClearColor(0.1f, 0.15f, 0.2f, 1.0f); glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glUseProgram(eng->program);
 
-    mat4 proj = mat4_perspective(1.0f, (float)w/(float)h, 0.1f, 100.0f);
-    mat4 rot = mat4_rotation(eng->angle);
-    rot.m[14] = -2.5f; // Отодвигаем куб
+    // Данные КУБА (Позиции + Цвета)
+    float v[] = {
+        -0.5,-0.5, 0.5, 1,0,0,  0.5,-0.5, 0.5, 0,1,0,  0.5, 0.5, 0.5, 0,0,1, -0.5, 0.5, 0.5, 1,1,0, // перед
+        -0.5,-0.5,-0.5, 1,0,1,  0.5,-0.5,-0.5, 0,1,1,  0.5, 0.5,-0.5, 1,1,1, -0.5, 0.5,-0.5, 0.5,0.5,0.5 // зад
+    };
+    unsigned short indices[] = { 0,1,2, 2,3,0, 1,5,6, 6,2,1, 7,6,5, 5,4,7, 4,0,3, 3,7,4, 3,2,6, 6,7,3, 4,5,1, 1,0,4 };
 
-    mat4 mvp = {0};
-    for(int i=0; i<4; i++) for(int j=0; j<4; j++)
-        for(int k=0; k<4; k++) mvp.m[i*4+j] += proj.m[i*4+k] * rot.m[k*4+j];
+    float proj[16], model[16];
+    get_projection(proj, (float)w/(float)h);
+    get_model_view(model, eng->angle);
 
-    glUniformMatrix4fv(eng->mvp_loc, 1, 0, mvp.m);
-    glBindBuffer(GL_ARRAY_BUFFER, eng->vbo);
-    glVertexAttribPointer(0, 3, GL_FLOAT, 0, 6*4, 0); glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 3, GL_FLOAT, 0, 6*4, (void*)(3*4)); glEnableVertexAttribArray(1);
+    // Передаем матрицы в шейдер по отдельности!
+    glUniformMatrix4fv(glGetUniformLocation(eng->program, "u_proj"), 1, 0, proj);
+    glUniformMatrix4fv(glGetUniformLocation(eng->program, "u_model"), 1, 0, model);
 
-    glDrawArrays(GL_TRIANGLE_FAN, 0, 4); glDrawArrays(GL_TRIANGLE_FAN, 4, 4);
-    glDrawArrays(GL_TRIANGLE_FAN, 8, 4); glDrawArrays(GL_TRIANGLE_FAN, 12, 4);
-    
+    glVertexAttribPointer(0, 3, GL_FLOAT, 0, 6*4, v); glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, 0, 6*4, &v[3]); glEnableVertexAttribArray(1);
+
+    glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_SHORT, indices);
     eglSwapBuffers(eng->display, eng->surface);
-    eng->angle += 0.03f;
+    eng->angle += 0.02f;
 }
 
 static void handle_cmd(struct android_app* app, int32_t cmd) {
