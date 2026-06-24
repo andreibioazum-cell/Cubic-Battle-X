@@ -10,12 +10,14 @@ path = "src/lib.rs"
 crate-type = ["cdylib"]
 
 [dependencies]
-macroquad = "0.4"
+macroquad = "0.4.5"
+lazy_static = "1.4.0"
 
 [package.metadata.android]
 package_name = "com.cubicbattle.x"
 label = "Cubic Battle X"
-target_sdk_version = 30
+# Поднимем версию до 33, чтобы новые Android не ругались
+target_sdk_version = 33
 min_sdk_version = 21
 build_targets = ["aarch64-linux-android", "armv7-linux-androideabi"]
 assets = "assets"
