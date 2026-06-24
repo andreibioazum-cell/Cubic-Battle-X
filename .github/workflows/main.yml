@@ -1,4 +1,4 @@
-name: Build Sokol APK
+name: Build Universal APK
 on: [push, workflow_dispatch]
 
 jobs:
@@ -12,33 +12,27 @@ jobs:
         with:
           ndk-version: r25c
 
-      - name: Download Sokol Headers
-        run: |
-          # Скачиваем файлы прямо в текущую папку
-          wget https://raw.githubusercontent.com/floooh/sokol/master/sokol_app.h
-          wget https://raw.githubusercontent.com/floooh/sokol/master/sokol_gfx.h
-          wget https://raw.githubusercontent.com/floooh/sokol/master/sokol_glue.h
-
-      - name: Build Libraries (64-bit and 32-bit)
+      - name: Build Libraries (64 and 32 bit)
         run: |
           # 64-bit
           $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android30-clang \
           -shared -fPIC main.c $ANDROID_NDK_ROOT/sources/android/native_app_glue/android_native_app_glue.c \
-          -o libmain_64.so -I. -I$ANDROID_NDK_ROOT/sources/android/native_app_glue \
+          -o libmain_64.so -I$ANDROID_NDK_ROOT/sources/android/native_app_glue \
           -landroid -llog -lGLESv2 -lEGL -lm
 
           # 32-bit
           $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi30-clang \
           -shared -fPIC main.c $ANDROID_NDK_ROOT/sources/android/native_app_glue/android_native_app_glue.c \
-          -o libmain_32.so -I. -I$ANDROID_NDK_ROOT/sources/android/native_app_glue \
+          -o libmain_32.so -I$ANDROID_NDK_ROOT/sources/android/native_app_glue \
           -landroid -llog -lGLESv2 -lEGL -lm
 
-      - name: Package APK
+      - name: Create APK
         run: |
           cat <<EOF > AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.cubic.sokol">
-              <application android:label="Cubic Sokol" android:hasCode="false">
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.cubic.battle">
+              <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
+              <application android:label="Cubic Battle 3D" android:hasCode="false">
                   <activity android:name="android.app.NativeActivity" android:exported="true">
                       <meta-data android:name="android.app.lib_name" android:value="main" />
                       <intent-filter>
@@ -49,8 +43,8 @@ jobs:
               </application>
           </manifest>
           EOF
-          SDK_VERSION=$(ls $ANDROID_HOME/build-tools/ | tail -n 1)
-          BUILD_TOOLS=$ANDROID_HOME/build-tools/$SDK_VERSION
+          
+          BUILD_TOOLS=$ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools/ | tail -n 1)
           PLATFORM_JAR=$(ls $ANDROID_HOME/platforms/*/android.jar | tail -n 1)
           
           mkdir -p staging/lib/arm64-v8a staging/lib/armeabi-v7a
@@ -67,5 +61,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Cubic-Sokol-APK
+          name: CubicBattle-Final-APK
           path: final.apk
