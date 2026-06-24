@@ -10,11 +10,11 @@ jobs:
       - name: Set up NDK
         uses: nttld/setup-ndk@v1
         with:
-          ndk-version: r25c
+          ndk-version: r25c # Используем стабильную версию
 
       - name: Build C Code
         run: |
-          # Компиляция под 64-бит (aarch64) - идеально для Tecno Spark Go 1
+          # Компиляция под 64-бит
           $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android30-clang \
           -shared -fPIC main.c -o libmain.so \
           -I$ANDROID_NDK_ROOT/sources/android/native_app_glue \
@@ -28,15 +28,15 @@ jobs:
 
       - name: Package and Sign APK
         run: |
-          # 1. Упаковка ресурсов
+          # Упаковка
           $ANDROID_HOME/build-tools/30.0.3/aapt package -f -M AndroidManifest.xml \
           -I $ANDROID_HOME/platforms/android-30/android.jar \
           -F unsigned.apk staging/
 
-          # 2. Выравнивание (важно для Android 14)
+          # Выравнивание
           $ANDROID_HOME/build-tools/30.0.3/zipalign -v 4 unsigned.apk aligned.apk
 
-          # 3. Создание ключа и подпись
+          # Подпись
           mkdir -p ~/.android
           keytool -genkey -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug, O=Android, C=US"
           $ANDROID_HOME/build-tools/30.0.3/apksigner sign --ks ~/.android/debug.keystore --ks-pass pass:android --out final.apk aligned.apk
