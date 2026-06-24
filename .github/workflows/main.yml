@@ -1,48 +1,43 @@
-name: Build APK
-on:
-  push:
-    branches: [ main, master ]
-  workflow_dispatch:
+name: Build C APK
+on: [push, workflow_dispatch]
 
 jobs:
-  build-apk:
+  build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Set up NDK
+        uses: nttld/setup-ndk@v1
         with:
-          targets: aarch64-linux-android armv7-linux-androideabi
+          ndk-version: r25c
 
-      - name: Set up Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Install Android Components
+      - name: Build Shared Library
         run: |
-          echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "platforms;android-30" "build-tools;30.0.3" "ndk;25.2.9519653"
+          # Компилируем C код под aarch64 (64 бит)
+          $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android30-clang \
+          -shared main.c -o libmain.so -landroid -llog -lEGL -lGLESv2 \
+          -I$ANDROID_NDK_ROOT/sources/android/native_app_glue \
+          $ANDROID_NDK_ROOT/sources/android/native_app_glue/android_native_app_glue.c
 
-      - name: Install cargo-apk
-        run: cargo install cargo-apk
-
-      - name: Build APK
+      - name: Package APK
         run: |
-          mkdir -p assets
+          # Создаем структуру папок APK
+          mkdir -p build/lib/arm64-v8a
+          mv libmain.so build/lib/arm64-v8a/
           
-          # МАГИЯ: Если файл всё еще называется main.rs, переименовываем его в lib.rs
-          if [ -f src/main.rs ]; then mv src/main.rs src/lib.rs; fi
+          # Упаковка через aapt
+          export PATH=$PATH:$ANDROID_HOME/build-tools/30.0.3
+          aapt package -f -M AndroidManifest.xml -I $ANDROID_HOME/platforms/android-30/android.jar -F test.apk build/
           
-          export ANDROID_HOME=/usr/local/lib/android/sdk
-          export ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/25.2.9519653
-          
-          cargo apk build
-        
-      - name: Upload APK Artifact
+          # Подпись (дебаг ключом)
+          debug_keystore=~/.android/debug.keystore
+          mkdir -p ~/.android
+          keytool -genkey -v -keystore $debug_keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug, O=Android, C=US"
+          apksigner sign --ks $debug_keystore --ks-pass pass:android test.apk
+
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: CubicBattle-APK
-          path: target/debug/apk/cubicbattle.apk
+          name: CubicBattle-C-APK
+          path: test.apk
