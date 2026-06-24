@@ -1,53 +1,93 @@
-#define SOKOL_GLES2
-#define SOKOL_ANDROID
-#define SOKOL_IMPL
-#include "sokol_app.h"
-#include "sokol_gfx.h"
-#include "sokol_glue.h"
+#include <android/log.h>
+#include <android_native_app_glue.h>
+#include <EGL/egl.h>
+#include <GLES2/gl2.h>
 #include <math.h>
 
-static struct {
-    sg_pipeline pip;
-    sg_bindings bind;
-    float rx, ry;
-} state;
+// Математика матриц
+void mat4_perspective(float* m, float fov, float aspect, float near, float far) {
+    float f = 1.0f / tanf(fov * 0.5f);
+    for (int i = 0; i < 16; i++) m[i] = 0;
+    m[0] = f / aspect; m[5] = f;
+    m[10] = (far + near) / (near - far); m[11] = -1.0f;
+    m[14] = (2.0f * far * near) / (near - far);
+}
 
-void init(void) {
-    sg_setup(&(sg_desc){ .context = sokol_helper_backend_desc() });
+void mat4_rotate(float* m, float angle) {
+    for (int i = 0; i < 16; i++) m[i] = 0;
+    m[0] = cosf(angle); m[2] = sinf(angle);
+    m[5] = 1.0f; m[8] = -sinf(angle);
+    m[10] = cosf(angle); m[15] = 1.0f;
+}
+
+struct engine {
+    struct android_app* app; EGLDisplay display; EGLSurface surface; EGLContext context;
+    GLuint prog; GLint mvp_loc; float angle;
+};
+
+static void init_gl(struct engine* eng) {
+    eng->display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+    eglInitialize(eng->display, 0, 0);
+    EGLConfig config; EGLint num;
+    eglChooseConfig(eng->display, (EGLint[]){EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT, EGL_BLUE_SIZE, 8, EGL_DEPTH_SIZE, 16, EGL_NONE}, &config, 1, &num);
+    eng->surface = eglCreateWindowSurface(eng->display, config, eng->app->window, NULL);
+    eng->context = eglCreateContext(eng->display, config, NULL, (EGLint[]){EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE});
+    eglMakeCurrent(eng->display, eng->surface, eng->surface, eng->context);
+
+    const char* vs = "attribute vec4 p; attribute vec4 c; varying vec4 v; uniform mat4 m; void main(){gl_Position=m*p; v=c;}";
+    const char* fs = "precision mediump float; varying vec4 v; void main(){gl_FragColor=v;}";
+    GLuint vsh = glCreateShader(GL_VERTEX_SHADER); glShaderSource(vsh,1,&vs,0); glCompileShader(vsh);
+    GLuint fsh = glCreateShader(GL_FRAGMENT_SHADER); glShaderSource(fsh,1,&fs,0); glCompileShader(fsh);
+    eng->prog = glCreateProgram(); glAttachShader(eng->prog,vsh); glAttachShader(eng->prog,fsh); glLinkProgram(eng->prog);
+    eng->mvp_loc = glGetUniformLocation(eng->prog, "m");
+    glEnable(GL_DEPTH_TEST);
+}
+
+static void draw(struct engine* eng) {
+    if (!eng->display) return;
+    glClearColor(0.1f, 0.2f, 0.3f, 1.0f); glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glUseProgram(eng->prog);
 
     float vertices[] = {
-        -0.5f,-0.5f,-0.5f, 1,0,0,1,  0.5f,-0.5f,-0.5f, 1,0,0,1,  0.5f, 0.5f,-0.5f, 1,0,0,1, -0.5f, 0.5f,-0.5f, 1,0,0,1,
-        -0.5f,-0.5f, 0.5f, 0,1,0,1,  0.5f,-0.5f, 0.5f, 0,1,0,1,  0.5f, 0.5f, 0.5f, 0,1,0,1, -0.5f, 0.5f, 0.5f, 0,1,0,1
+        -0.5,-0.5,0.5, 1,0,0,  0.5,-0.5,0.5, 0,1,0,  0.5,0.5,0.5, 0,0,1, -0.5,0.5,0.5, 1,1,0,
+        -0.5,-0.5,-0.5, 1,0,1, 0.5,-0.5,-0.5, 0,1,1,  0.5,0.5,-0.5, 1,1,1, -0.5,0.5,-0.5, 0,0,0
     };
-    state.bind.vertex_buffers[0] = sg_make_buffer(&(sg_buffer_desc){ .data = SG_RANGE(vertices) });
+    unsigned short indices[] = {0,1,2, 2,3,0, 4,5,6, 6,7,4, 4,0,3, 3,7,4, 1,5,6, 6,2,1, 3,2,6, 6,7,3, 4,5,1, 1,0,4};
 
-    uint16_t indices[] = { 0,1,2, 0,2,3, 6,5,4, 7,6,4, 1,0,4, 5,1,4, 2,1,5, 2,5,6, 3,2,6, 3,6,7, 0,3,7, 0,7,4 };
-    state.bind.index_buffer = sg_make_buffer(&(sg_buffer_desc){ .type = SG_BUFFERTYPE_INDEXBUFFER, .data = SG_RANGE(indices) });
+    float proj[16], model[16], mvp[16];
+    mat4_perspective(proj, 1.0f, (float)ANativeWindow_getWidth(eng->app->window)/ANativeWindow_getHeight(eng->app->window), 0.1f, 10.0f);
+    mat4_rotate(model, eng->angle);
+    model[14] = -3.0f; // Дистанция
 
-    state.pip = sg_make_pipeline(&(sg_pipeline_desc){
-        .shader = sg_make_shader(&(sg_shader_desc){
-            .vs.source = "uniform mat4 m; attribute vec4 position; attribute vec4 color; varying vec4 v_col; void main() { gl_Position = m * position; v_col = color; }",
-            .fs.source = "precision mediump float; varying vec4 v_col; void main() { gl_FragColor = v_col; }",
-            .vs.uniform_blocks[0].size = 64
-        }),
-        .layout.attrs[0].format = SG_VERTEXFORMAT_FLOAT3,
-        .layout.attrs[1].format = SG_VERTEXFORMAT_FLOAT4,
-        .index_type = SG_INDEXTYPE_UINT16,
-        .depth = { .compare = SG_COMPAREFUNC_LESS_EQUAL, .write_enabled = true }
-    });
+    // Перемножение mvp = proj * model
+    for(int i=0; i<4; i++) for(int j=0; j<4; j++) {
+        mvp[i*4+j] = 0;
+        for(int k=0; k<4; k++) mvp[i*4+j] += proj[i*4+k] * model[k*4+j];
+    }
+
+    glUniformMatrix4fv(eng->mvp_loc, 1, 0, mvp);
+    glVertexAttribPointer(0, 3, GL_FLOAT, 0, 6*4, vertices); glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, 0, 6*4, &vertices[3]); glEnableVertexAttribArray(1);
+    glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_SHORT, indices);
+    eglSwapBuffers(eng->display, eng->surface);
+    eng->angle += 0.02f;
 }
 
-void frame(void) {
-    float mvp[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1}; // Упрощенная матрица
-    sg_begin_default_pass(&(sg_pass_action){.colors[0]={.action=SG_ACTION_CLEAR, .value={0,0.5,0.7,1}}}, sapp_width(), sapp_height());
-    sg_apply_pipeline(state.pip);
-    sg_apply_bindings(&state.bind);
-    sg_apply_uniforms(SG_SHADERSTAGE_VS, 0, &SG_RANGE(mvp));
-    sg_draw(0, 36, 1);
-    sg_end_pass();
-    sg_commit();
+static void handle_cmd(struct android_app* app, int32_t cmd) {
+    struct engine* eng = (struct engine*)app->userData;
+    if (cmd == APP_CMD_INIT_WINDOW) init_gl(eng);
+    else if (cmd == APP_CMD_TERM_WINDOW) eng->display = NULL;
 }
 
-sapp_desc sokol_main(int argc, char* argv[]) {
-    return (sapp_desc){ .init_cb = init, .frame_cb = frame, .window_title = "Cubic Battle" };
+void android_main(struct android_app* state) {
+    struct engine eng = {0};
+    state->userData = &eng; state->onAppCmd = handle_cmd; eng.app = state;
+    while (1) {
+        int events; struct android_poll_source* source;
+        while (ALooper_pollOnce(eng.display ? 0 : -1, 0, &events, (void**)&source) >= 0) {
+            if (source) source->process(state, source);
+            if (state->destroyRequested) return;
+        }
+        if (eng.display) draw(&eng);
+    }
 }
