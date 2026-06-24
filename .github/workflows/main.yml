@@ -14,29 +14,41 @@ jobs:
 
       - name: Build C Code
         run: |
-          # Компиляция под aarch64
+          # Компиляция под 64-бит
           $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android30-clang \
           -shared -fPIC main.c -o libmain.so \
           -I$ANDROID_NDK_ROOT/sources/android/native_app_glue \
           $ANDROID_NDK_ROOT/sources/android/native_app_glue/android_native_app_glue.c \
           -landroid -llog -lEGL -lGLESv2
 
-      - name: Create APK Structure
+      - name: Auto-generate AndroidManifest
         run: |
-          mkdir -p staging/lib/arm64-v8a
-          cp libmain.so staging/lib/arm64-v8a/
+          cat <<EOF > AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.cubic.battle">
+              <application android:label="Cubic Battle C" android:hasCode="false">
+                  <activity android:name="android.app.NativeActivity" 
+                            android:configChanges="orientation|screenSize|keyboardHidden"
+                            android:exported="true">
+                      <meta-data android:name="android.app.lib_name" android:value="main" />
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
 
       - name: Package and Sign APK
         run: |
-          # Находим пути к инструментам динамически
+          # Находим инструменты
           SDK_VERSION=$(ls $ANDROID_HOME/build-tools/ | tail -n 1)
           BUILD_TOOLS=$ANDROID_HOME/build-tools/$SDK_VERSION
-          PLATFORM_JAR=$ANDROID_HOME/platforms/android-34/android.jar
-          # Если 34 нет, возьмем любую доступную платформу
-          if [ ! -f $PLATFORM_JAR ]; then PLATFORM_JAR=$(ls $ANDROID_HOME/platforms/*/android.jar | tail -n 1); fi
+          PLATFORM_JAR=$(ls $ANDROID_HOME/platforms/*/android.jar | tail -n 1)
           
-          echo "Используем Build-Tools: $BUILD_TOOLS"
-          echo "Используем Platform JAR: $PLATFORM_JAR"
+          mkdir -p staging/lib/arm64-v8a
+          cp libmain.so staging/lib/arm64-v8a/
 
           # 1. Упаковка
           $BUILD_TOOLS/aapt package -f -M AndroidManifest.xml \
@@ -46,7 +58,7 @@ jobs:
           # 2. Выравнивание
           $BUILD_TOOLS/zipalign -v 4 unsigned.apk aligned.apk
 
-          # 3. Генерация ключа и подпись
+          # 3. Подпись
           mkdir -p ~/.android
           keytool -genkey -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug, O=Android, C=US"
           $BUILD_TOOLS/apksigner sign --ks ~/.android/debug.keystore --ks-pass pass:android --out final.apk aligned.apk
