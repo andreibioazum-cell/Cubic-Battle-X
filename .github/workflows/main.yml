@@ -14,24 +14,30 @@ jobs:
 
       - name: Download Sokol Headers
         run: |
-          mkdir -p sokol
-          wget https://raw.githubusercontent.com/floooh/sokol/master/sokol_app.h -O sokol/sokol_app.h
-          wget https://raw.githubusercontent.com/floooh/sokol/master/sokol_gfx.h -O sokol/sokol_gfx.h
-          wget https://raw.githubusercontent.com/floooh/sokol/master/sokol_glue.h -O sokol/sokol_glue.h
+          # Скачиваем файлы прямо в текущую папку
+          wget https://raw.githubusercontent.com/floooh/sokol/master/sokol_app.h
+          wget https://raw.githubusercontent.com/floooh/sokol/master/sokol_gfx.h
+          wget https://raw.githubusercontent.com/floooh/sokol/master/sokol_glue.h
 
-      - name: Build C Code
+      - name: Build Libraries (64-bit and 32-bit)
         run: |
+          # 64-bit
           $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android30-clang \
-          -shared -fPIC main.c -o libmain.so -Isokol \
-          -I$ANDROID_NDK_ROOT/sources/android/native_app_glue \
-          $ANDROID_NDK_ROOT/sources/android/native_app_glue/android_native_app_glue.c \
+          -shared -fPIC main.c $ANDROID_NDK_ROOT/sources/android/native_app_glue/android_native_app_glue.c \
+          -o libmain_64.so -I. -I$ANDROID_NDK_ROOT/sources/android/native_app_glue \
+          -landroid -llog -lGLESv2 -lEGL -lm
+
+          # 32-bit
+          $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi30-clang \
+          -shared -fPIC main.c $ANDROID_NDK_ROOT/sources/android/native_app_glue/android_native_app_glue.c \
+          -o libmain_32.so -I. -I$ANDROID_NDK_ROOT/sources/android/native_app_glue \
           -landroid -llog -lGLESv2 -lEGL -lm
 
       - name: Package APK
         run: |
           cat <<EOF > AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.cubic.battle">
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.cubic.sokol">
               <application android:label="Cubic Sokol" android:hasCode="false">
                   <activity android:name="android.app.NativeActivity" android:exported="true">
                       <meta-data android:name="android.app.lib_name" android:value="main" />
@@ -46,9 +52,14 @@ jobs:
           SDK_VERSION=$(ls $ANDROID_HOME/build-tools/ | tail -n 1)
           BUILD_TOOLS=$ANDROID_HOME/build-tools/$SDK_VERSION
           PLATFORM_JAR=$(ls $ANDROID_HOME/platforms/*/android.jar | tail -n 1)
-          mkdir -p staging/lib/arm64-v8a && cp libmain.so staging/lib/arm64-v8a/
+          
+          mkdir -p staging/lib/arm64-v8a staging/lib/armeabi-v7a
+          cp libmain_64.so staging/lib/arm64-v8a/libmain.so
+          cp libmain_32.so staging/lib/armeabi-v7a/libmain.so
+
           $BUILD_TOOLS/aapt package -f -M AndroidManifest.xml -I $PLATFORM_JAR -F unsigned.apk staging/
           $BUILD_TOOLS/zipalign -v 4 unsigned.apk aligned.apk
+          
           mkdir -p ~/.android
           keytool -genkey -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug, O=Android, C=US"
           $BUILD_TOOLS/apksigner sign --ks ~/.android/debug.keystore --ks-pass pass:android --out final.apk aligned.apk
