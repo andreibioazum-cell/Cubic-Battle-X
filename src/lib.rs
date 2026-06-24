@@ -1,36 +1,33 @@
 use macroquad::prelude::*;
-use std::sync::{Arc, Mutex};
+use std::fs::OpenOptions;
+use std::io::Write;
 
-// Создаем хранилище для текста ошибки
-lazy_static::lazy_static! {
-    static ref PANIC_MESSAGE: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+fn write_to_log(msg: &str) {
+    // Путь к папке, куда приложению РАЗРЕШЕНО писать без разрешений на Android
+    // Файл будет лежать в: Android/data/com.cubicbattle.x/files/crash_log.txt
+    let path = "/sdcard/Android/data/com.cubicbattle.x/files/crash_log.txt";
+    
+    // Создаем папку, если её нет
+    let _ = std::fs::create_dir_all("/sdcard/Android/data/com.cubicbattle.x/files");
+
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "[{}]", msg);
+    }
 }
 
 #[macroquad::main("CubicBattle")]
 async fn main() {
-    // Настраиваем перехватчик ошибок
+    // Перехват паники (краша)
     std::panic::set_hook(Box::new(|info| {
-        let msg = format!("CRASH! Error: {}", info);
-        if let Ok(mut storage) = PANIC_MESSAGE.lock() {
-            *storage = Some(msg);
-        }
+        let err_msg = format!("CRASH: {}", info);
+        write_to_log(&err_msg);
     }));
 
-    loop {
-        // Проверяем, не случилась ли ошибка
-        if let Ok(storage) = PANIC_MESSAGE.lock() {
-            if let Some(ref msg) = *storage {
-                clear_background(RED);
-                draw_text("GAME CRASHED!", 20.0, 50.0, 40.0, WHITE);
-                draw_text(msg, 20.0, 100.0, 20.0, YELLOW);
-                next_frame().await;
-                continue; // Не идем дальше в игру
-            }
-        }
+    write_to_log("App Started successfully");
 
-        // Сама игра
+    loop {
         clear_background(BLACK);
-        
+
         set_camera(&Camera3D {
             position: vec3(5.0, 5.0, 5.0),
             up: vec3(0.0, 1.0, 0.0),
@@ -42,7 +39,7 @@ async fn main() {
         draw_cube(vec3(0.0, 1.0, 0.0), vec3(2.0, 2.0, 2.0), None, WHITE);
 
         set_default_camera();
-        draw_text(&format!("FPS: {}", get_fps()), 10.0, 20.0, 20.0, GREEN);
+        draw_text("If you see this, it works!", 10.0, 20.0, 20.0, GREEN);
 
         next_frame().await
     }
