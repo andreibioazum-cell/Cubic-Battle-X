@@ -10,11 +10,11 @@ jobs:
       - name: Set up NDK
         uses: nttld/setup-ndk@v1
         with:
-          ndk-version: r25c # Используем стабильную версию
+          ndk-version: r25c
 
       - name: Build C Code
         run: |
-          # Компиляция под 64-бит
+          # Компиляция под aarch64
           $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android30-clang \
           -shared -fPIC main.c -o libmain.so \
           -I$ANDROID_NDK_ROOT/sources/android/native_app_glue \
@@ -28,18 +28,28 @@ jobs:
 
       - name: Package and Sign APK
         run: |
-          # Упаковка
-          $ANDROID_HOME/build-tools/30.0.3/aapt package -f -M AndroidManifest.xml \
-          -I $ANDROID_HOME/platforms/android-30/android.jar \
+          # Находим пути к инструментам динамически
+          SDK_VERSION=$(ls $ANDROID_HOME/build-tools/ | tail -n 1)
+          BUILD_TOOLS=$ANDROID_HOME/build-tools/$SDK_VERSION
+          PLATFORM_JAR=$ANDROID_HOME/platforms/android-34/android.jar
+          # Если 34 нет, возьмем любую доступную платформу
+          if [ ! -f $PLATFORM_JAR ]; then PLATFORM_JAR=$(ls $ANDROID_HOME/platforms/*/android.jar | tail -n 1); fi
+          
+          echo "Используем Build-Tools: $BUILD_TOOLS"
+          echo "Используем Platform JAR: $PLATFORM_JAR"
+
+          # 1. Упаковка
+          $BUILD_TOOLS/aapt package -f -M AndroidManifest.xml \
+          -I $PLATFORM_JAR \
           -F unsigned.apk staging/
 
-          # Выравнивание
-          $ANDROID_HOME/build-tools/30.0.3/zipalign -v 4 unsigned.apk aligned.apk
+          # 2. Выравнивание
+          $BUILD_TOOLS/zipalign -v 4 unsigned.apk aligned.apk
 
-          # Подпись
+          # 3. Генерация ключа и подпись
           mkdir -p ~/.android
           keytool -genkey -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug, O=Android, C=US"
-          $ANDROID_HOME/build-tools/30.0.3/apksigner sign --ks ~/.android/debug.keystore --ks-pass pass:android --out final.apk aligned.apk
+          $BUILD_TOOLS/apksigner sign --ks ~/.android/debug.keystore --ks-pass pass:android --out final.apk aligned.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
