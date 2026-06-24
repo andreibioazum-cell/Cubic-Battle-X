@@ -1,78 +1,130 @@
-name: Build Universal APK
-on: [push, workflow_dispatch]
+#include <android/log.h>
+#include <android_native_app_glue.h>
+#include <EGL/egl.h>
+#include <GLES2/gl2.h>
+#include <math.h>
+#include <stdlib.h>
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "CubicBattle", __VA_ARGS__)
 
-      - name: Set up NDK
-        uses: nttld/setup-ndk@v1
-        with:
-          ndk-version: r25c
+// Простая математика матриц
+void matrix_identity(float* m) {
+    for (int i = 0; i < 16; i++) m[i] = 0;
+    m[0] = m[5] = m[10] = m[15] = 1.0f;
+}
 
-      - name: Build 64-bit (arm64-v8a)
-        run: |
-          $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android34-clang \
-          -shared -fPIC main.c -o libmain_64.so \
-          -I$ANDROID_NDK_ROOT/sources/android/native_app_glue \
-          $ANDROID_NDK_ROOT/sources/android/native_app_glue/android_native_app_glue.c \
-          -landroid -llog -lEGL -lGLESv2
+void matrix_perspective(float* m, float fov, float aspect, float near, float far) {
+    float f = 1.0f / tanf(fov * 0.5f);
+    m[0] = f / aspect; m[5] = f;
+    m[10] = (far + near) / (near - far);
+    m[11] = -1.0f;
+    m[14] = (2.0f * far * near) / (near - far);
+    m[15] = 0;
+}
 
-      - name: Build 32-bit (armeabi-v7a)
-        run: |
-          $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi34-clang \
-          -shared -fPIC main.c -o libmain_32.so \
-          -I$ANDROID_NDK_ROOT/sources/android/native_app_glue \
-          $ANDROID_NDK_ROOT/sources/android/native_app_glue/android_native_app_glue.c \
-          -landroid -llog -lEGL -lGLESv2
+void matrix_rotate_y(float* m, float angle) {
+    matrix_identity(m);
+    m[0] = cosf(angle); m[2] = -sinf(angle);
+    m[8] = sinf(angle); m[10] = cosf(angle);
+}
 
-      - name: Generate Manifest
-        run: |
-          cat <<EOF > AndroidManifest.xml
-          <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.cubic.battle">
-              <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
-              <application android:label="Cubic Battle Uni" android:hasCode="false" android:extractNativeLibs="true">
-                  <activity android:name="android.app.NativeActivity" 
-                            android:configChanges="orientation|screenSize|keyboardHidden"
-                            android:exported="true">
-                      <meta-data android:name="android.app.lib_name" android:value="main" />
-                      <intent-filter>
-                          <action android:name="android.intent.action.MAIN" />
-                          <category android:name="android.intent.category.LAUNCHER" />
-                      </intent-filter>
-                  </activity>
-              </application>
-          </manifest>
-          EOF
+// Шейдеры
+const char* v_shader_source = 
+    "attribute vec4 a_pos; attribute vec4 a_col; "
+    "varying vec4 v_col; uniform mat4 u_mvp; "
+    "void main() { gl_Position = u_mvp * a_pos; v_col = a_col; }";
 
-      - name: Package Universal APK
-        run: |
-          SDK_VERSION=$(ls $ANDROID_HOME/build-tools/ | tail -n 1)
-          BUILD_TOOLS=$ANDROID_HOME/build-tools/$SDK_VERSION
-          PLATFORM_JAR=$(ls $ANDROID_HOME/platforms/*/android.jar | tail -n 1)
-          
-          # Создаем структуру для ОБЕИХ архитектур
-          mkdir -p staging/lib/arm64-v8a
-          mkdir -p staging/lib/armeabi-v7a
-          cp libmain_64.so staging/lib/arm64-v8a/libmain.so
-          cp libmain_32.so staging/lib/armeabi-v7a/libmain.so
+const char* f_shader_source = 
+    "precision mediump float; varying vec4 v_col; "
+    "void main() { gl_FragColor = v_col; }";
 
-          # Упаковка, выравнивание и подпись
-          $BUILD_TOOLS/aapt package -f -M AndroidManifest.xml -I $PLATFORM_JAR -F unsigned.apk staging/
-          $BUILD_TOOLS/zipalign -v 4 unsigned.apk aligned.apk
-          
-          mkdir -p ~/.android
-          keytool -genkey -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug, O=Android, C=US"
-          
-          $BUILD_TOOLS/apksigner sign --ks ~/.android/debug.keystore --ks-pass pass:android \
-          --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true \
-          --out final.apk aligned.apk
+struct engine {
+    struct android_app* app;
+    EGLDisplay display; EGLSurface surface; EGLContext context;
+    GLuint program; GLuint mvp_loc;
+    float angle;
+};
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: CubicBattle-Universal-APK
-          path: final.apk
+GLuint load_shader(GLenum type, const char* source) {
+    GLuint shader = glCreateShader(type);
+    glShaderSource(shader, 1, &source, NULL);
+    glCompileShader(shader);
+    return shader;
+}
+
+static void engine_init_gl(struct engine* eng) {
+    eng->display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+    eglInitialize(eng->display, 0, 0);
+    EGLConfig config; EGLint num;
+    eglChooseConfig(eng->display, (EGLint[]){EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT, EGL_BLUE_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_RED_SIZE, 8, EGL_NONE}, &config, 1, &num);
+    eng->surface = eglCreateWindowSurface(eng->display, config, eng->app->window, NULL);
+    eng->context = eglCreateContext(eng->display, config, NULL, (EGLint[]){EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE});
+    eglMakeCurrent(eng->display, eng->surface, eng->surface, eng->context);
+
+    GLuint vs = load_shader(GL_VERTEX_SHADER, v_shader_source);
+    GLuint fs = load_shader(GL_FRAGMENT_SHADER, f_shader_source);
+    eng->program = glCreateProgram();
+    glAttachShader(eng->program, vs); glAttachShader(eng->program, fs);
+    glLinkProgram(eng->program);
+    eng->mvp_loc = glGetUniformLocation(eng->program, "u_mvp");
+    glEnable(GL_DEPTH_TEST);
+}
+
+static void engine_draw(struct engine* eng) {
+    if (!eng->display) return;
+    
+    // Глубокий синий фон
+    glClearColor(0.1f, 0.2f, 0.5f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glUseProgram(eng->program);
+
+    // Геометрия куба (позиции + цвета)
+    float vertices[] = {
+        -0.5,-0.5,0.5, 1,0,0,  0.5,-0.5,0.5, 0,1,0,  0.5,0.5,0.5, 0,0,1, -0.5,0.5,0.5, 1,1,0,
+        -0.5,-0.5,-0.5, 1,0,1, 0.5,-0.5,-0.5, 0,1,1,  0.5,0.5,-0.5, 1,1,1, -0.5,0.5,-0.5, 0,0,0
+    };
+    unsigned short indices[] = { 0,1,2, 2,3,0, 4,5,6, 6,7,4, 4,0,3, 3,7,4, 1,5,6, 6,2,1, 3,2,6, 6,7,3, 4,5,1, 1,0,4 };
+
+    // Матрицы
+    float proj[16], model[16], mvp[16];
+    matrix_perspective(proj, 1.0f, (float)ANativeWindow_getWidth(eng->app->window)/(float)ANativeWindow_getHeight(eng->app->window), 0.1f, 100.0f);
+    matrix_rotate_y(model, eng->angle);
+    model[14] = -3.0f; // Отодвигаем куб назад
+
+    // Умножение (упрощенное для теста: proj * model)
+    for(int i=0; i<4; i++) for(int j=0; j<4; j++) {
+        mvp[i*4+j] = 0;
+        for(int k=0; k<4; k++) mvp[i*4+j] += proj[i*4+k] * model[k*4+j];
+    }
+
+    glUniformMatrix4fv(eng->mvp_loc, 1, GL_FALSE, mvp);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*4, vertices);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*4, &vertices[3]);
+    glEnableVertexAttribArray(1);
+
+    glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_SHORT, indices);
+    eglSwapBuffers(eng->display, eng->surface);
+    eng->angle += 0.02f;
+}
+
+static void handle_cmd(struct android_app* app, int32_t cmd) {
+    struct engine* eng = (struct engine*)app->userData;
+    if (cmd == APP_CMD_INIT_WINDOW) { engine_init_gl(eng); }
+    else if (cmd == APP_CMD_TERM_WINDOW) { eng->display = NULL; }
+}
+
+void android_main(struct android_app* state) {
+    struct engine eng = {0};
+    state->userData = &eng;
+    state->onAppCmd = handle_cmd;
+    eng.app = state;
+    while (1) {
+        int events; struct android_poll_source* source;
+        while (ALooper_pollOnce(eng.display ? 0 : -1, NULL, &events, (void**)&source) >= 0) {
+            if (source) source->process(state, source);
+            if (state->destroyRequested) return;
+        }
+        if (eng.display) engine_draw(&eng);
+    }
+}
