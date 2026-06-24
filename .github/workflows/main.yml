@@ -16,7 +16,7 @@ jobs:
         with:
           targets: aarch64-linux-android
 
-      - name: Set up Java
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
@@ -27,16 +27,22 @@ jobs:
         with:
           ndk-version: r25c
 
+      - name: Install Android Platform
+        run: |
+          # Устанавливаем платформу 30 и build-tools
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "platforms;android-30" "build-tools;30.0.3"
+
       - name: Install cargo-apk
         run: cargo install cargo-apk
 
       - name: Build APK
-        # Собираем в режиме debug (он автоматически подписывается дебаг-ключом)
+        # Добавляем переменные окружения, чтобы cargo-apk точно видел NDK
         run: cargo apk build
+        env:
+          ANDROID_NDK_ROOT: ${{ env.ANDROID_NDK_HOME }}
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: CubicBattle-APK
-          # cargo-apk создает путь на основе имени в Cargo.toml
           path: target/debug/apk/cubicbattle.apk
