@@ -9,16 +9,16 @@ jobs:
       - name: Setup NDK
         uses: nttld/setup-ndk@v1
         with:
-          ndk-version: r25c
+          ndk-version: r23c
       
       - name: Download stb_image
         run: |
           wget -O stb_image.h https://raw.githubusercontent.com/nothings/stb/master/stb_image.h
       
-      - name: Build native libraries
+      - name: Build native libraries (All architectures)
         run: |
           # ARM64
-          $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android30-clang \
+          $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang \
             -shared -fPIC main.c \
             $ANDROID_NDK_ROOT/sources/android/native_app_glue/android_native_app_glue.c \
             -o libmain_64.so \
@@ -26,10 +26,26 @@ jobs:
             -landroid -llog -lGLESv2 -lEGL -lm
           
           # ARM32
-          $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi30-clang \
+          $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi21-clang \
             -shared -fPIC main.c \
             $ANDROID_NDK_ROOT/sources/android/native_app_glue/android_native_app_glue.c \
             -o libmain_32.so \
+            -I. -I$ANDROID_NDK_ROOT/sources/android/native_app_glue \
+            -landroid -llog -lGLESv2 -lEGL -lm
+          
+          # x86_64 (для эмуляторов)
+          $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android21-clang \
+            -shared -fPIC main.c \
+            $ANDROID_NDK_ROOT/sources/android/native_app_glue/android_native_app_glue.c \
+            -o libmain_x86_64.so \
+            -I. -I$ANDROID_NDK_ROOT/sources/android/native_app_glue \
+            -landroid -llog -lGLESv2 -lEGL -lm
+          
+          # x86 (для старых эмуляторов)
+          $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/i686-linux-android21-clang \
+            -shared -fPIC main.c \
+            $ANDROID_NDK_ROOT/sources/android/native_app_glue/android_native_app_glue.c \
+            -o libmain_x86.so \
             -I. -I$ANDROID_NDK_ROOT/sources/android/native_app_glue \
             -landroid -llog -lGLESv2 -lEGL -lm
       
@@ -38,9 +54,11 @@ jobs:
       
       - name: Package APK
         run: |
-          mkdir -p staging/lib/arm64-v8a staging/lib/armeabi-v7a staging/assets
+          mkdir -p staging/lib/arm64-v8a staging/lib/armeabi-v7a staging/lib/x86_64 staging/lib/x86 staging/assets
           cp libmain_64.so staging/lib/arm64-v8a/libmain.so
           cp libmain_32.so staging/lib/armeabi-v7a/libmain.so
+          cp libmain_x86_64.so staging/lib/x86_64/libmain.so
+          cp libmain_x86.so staging/lib/x86/libmain.so
           if [ -d assets ]; then cp -r assets/* staging/assets/; fi
           
           BUILD_TOOLS=$ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools/ | tail -n 1)
