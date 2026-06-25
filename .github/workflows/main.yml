@@ -1,6 +1,5 @@
-name: Build Universal Horror APK
+name: Build Horror APK
 on: [push, workflow_dispatch]
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -10,27 +9,23 @@ jobs:
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r25c
-
       - name: Build Libraries
         run: |
-          # 64-bit
           $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android30-clang \
           -shared -fPIC *.c $ANDROID_NDK_ROOT/sources/android/native_app_glue/android_native_app_glue.c \
           -o libmain_64.so -I. -I$ANDROID_NDK_ROOT/sources/android/native_app_glue \
           -landroid -llog -lGLESv2 -lEGL -lm
-
-          # 32-bit
+          
           $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi30-clang \
           -shared -fPIC *.c $ANDROID_NDK_ROOT/sources/android/native_app_glue/android_native_app_glue.c \
           -o libmain_32.so -I. -I$ANDROID_NDK_ROOT/sources/android/native_app_glue \
           -landroid -llog -lGLESv2 -lEGL -lm
-
       - name: Create APK
         run: |
           cat <<EOF > AndroidManifest.xml
           <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.horror.battle">
               <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
-              <application android:label="Grapnel Horror" android:hasCode="false" android:extractNativeLibs="true">
+              <application android:label="Horror Grapnel" android:hasCode="false" android:extractNativeLibs="true">
                   <activity android:name="android.app.NativeActivity" android:exported="true">
                       <meta-data android:name="android.app.lib_name" android:value="main" />
                       <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
@@ -41,15 +36,13 @@ jobs:
           mkdir -p staging/lib/arm64-v8a staging/lib/armeabi-v7a
           cp libmain_64.so staging/lib/arm64-v8a/libmain.so
           cp libmain_32.so staging/lib/armeabi-v7a/libmain.so
-          
           BUILD_TOOLS=$ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools/ | tail -n 1)
           $BUILD_TOOLS/aapt package -f -M AndroidManifest.xml -I $ANDROID_HOME/platforms/android-34/android.jar -F unsigned.apk staging/
           $BUILD_TOOLS/zipalign -v 4 unsigned.apk aligned.apk
           keytool -genkey -v -keystore d.ks -storepass android -alias a -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=A"
           $BUILD_TOOLS/apksigner sign --ks d.ks --ks-pass pass:android --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true --out final.apk aligned.apk
-
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Horror-Game-APK
+          name: Horror-Game
           path: final.apk
