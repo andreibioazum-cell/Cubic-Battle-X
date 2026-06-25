@@ -1,4 +1,4 @@
-name: Build 2D APK
+name: Build BlackCube 2D
 on: [push, workflow_dispatch]
 jobs:
   build:
