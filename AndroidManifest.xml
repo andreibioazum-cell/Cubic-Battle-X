@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.cubic.battle">
-    <application android:label="Cubic Battle X" android:hasCode="false" android:icon="@mipmap/ic_launcher">
+    <!-- Убрали android:icon, чтобы сборка не искала несуществующие картинки -->
+    <application android:label="Cubic Battle X" android:hasCode="false">
         <activity android:name="android.app.NativeActivity" 
                   android:screenOrientation="landscape"
                   android:configChanges="orientation|screenSize|keyboardHidden"
