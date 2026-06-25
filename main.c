@@ -8,9 +8,8 @@
 struct engine {
     struct android_app* app; EGLDisplay disp; EGLSurface surf; EGLContext ctx;
     GLuint prog; GLint mvp_loc, col_loc;
-    float px, py;   // Позиция игрока
-    float cx, cy;   // Позиция камеры (плавная)
-    float npx, npy; // NPC
+    float px, py, cx, cy;
+    float npx, npy;
     float jsx, jsy, jcx, jcy; int tj;
 };
 
@@ -23,17 +22,40 @@ void draw_rect(struct engine* eng, float x, float y, float w, float h, float r, 
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
 
-void draw_circle(struct engine* eng, float x, float y, float radius, int filled, float r, float g, float b, float a, mat4 m) {
-    float v[144];
-    for(int i=0; i<72; i++) {
-        v[i*2] = x + cosf(i * 5.0f * M_PI / 180.0f) * radius;
-        v[i*2+1] = y + sinf(i * 5.0f * M_PI / 180.0f) * radius;
+// Улучшенная отрисовка круга без пикселей и разрывов
+void draw_circle_advanced(struct engine* eng, float x, float y, float radius, float thickness, float r, float g, float b, mat4 m) {
+    // 144 точки для идеальной гладкости
+    float v[288]; 
+    if (thickness > 0) { // Рисуем кольцо мешем (Triangle Strip)
+        float v_ring[576];
+        for(int i=0; i <= 144; i++) {
+            float angle = i * (2.0f * M_PI / 144.0f);
+            float cos_a = cosf(angle);
+            float sin_a = sinf(angle);
+            // Внешняя точка
+            v_ring[i*4] = x + cos_a * radius;
+            v_ring[i*4+1] = y + sin_a * radius;
+            // Внутренняя точка
+            v_ring[i*4+2] = x + cos_a * (radius - thickness);
+            v_ring[i*4+3] = y + sin_a * (radius - thickness);
+        }
+        glUniformMatrix4fv(eng->mvp_loc, 1, 0, m.m);
+        glUniform4f(eng->col_loc, r, g, b, 1.0);
+        glVertexAttribPointer(0, 2, GL_FLOAT, 0, 0, v_ring);
+        glEnableVertexAttribArray(0);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 288);
+    } else { // Залитый круг (Стик)
+        for(int i=0; i < 144; i++) {
+            float angle = i * (2.0f * M_PI / 144.0f);
+            v[i*2] = x + cosf(angle) * radius;
+            v[i*2+1] = y + sinf(angle) * radius;
+        }
+        glUniformMatrix4fv(eng->mvp_loc, 1, 0, m.m);
+        glUniform4f(eng->col_loc, r, g, b, 1.0);
+        glVertexAttribPointer(0, 2, GL_FLOAT, 0, 0, v);
+        glEnableVertexAttribArray(0);
+        glDrawArrays(GL_TRIANGLE_FAN, 0, 144);
     }
-    glUniformMatrix4fv(eng->mvp_loc, 1, 0, m.m);
-    glUniform4f(eng->col_loc, r, g, b, a);
-    glVertexAttribPointer(0, 2, GL_FLOAT, 0, 0, v);
-    glEnableVertexAttribArray(0);
-    glDrawArrays(filled ? GL_TRIANGLE_FAN : GL_LINE_LOOP, 0, 72);
 }
 
 static void draw(struct engine* eng) {
@@ -42,43 +64,39 @@ static void draw(struct engine* eng) {
     int h = ANativeWindow_getHeight(eng->app->window);
 
     if (eng->tj) {
-        float dx = eng->jcx - eng->jsx;
-        float dy = eng->jcy - eng->jsy;
+        float dx = eng->jcx - eng->jsx, dy = eng->jcy - eng->jsy;
         float d = sqrtf(dx*dx + dy*dy);
         if (d > 5.0f) {
-            eng->px += (dx/d) * 12.0f; // Скорость чуть выше
-            eng->py += (dy/d) * 12.0f;
+            eng->px += (dx/d) * 6.5f; // ЗАМЕДЛЕНО: было 12.0
+            eng->py += (dy/d) * 6.5f;
         }
     }
 
-    // ПЛАВНАЯ КАМЕРА (Lerp)
-    // 0.1f - коэффициент плавности (чем меньше, тем медленнее камера)
-    eng->cx = lerp(eng->cx, eng->px, 0.1f);
-    eng->cy = lerp(eng->cy, eng->py, 0.1f);
+    // КАМЕРА: 0.3f вместо 0.1f (быстрее центрируется)
+    eng->cx = lerp(eng->cx, eng->px, 0.3f);
+    eng->cy = lerp(eng->cy, eng->py, 0.3f);
 
     glViewport(0, 0, w, h);
     glClearColor(0.9f, 0.9f, 0.9f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
     glUseProgram(eng->prog);
-    glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     mat4 view;
     mat4_ortho(&view, 0, w, h, 0);
     mat4_translate(&view, w/2 - eng->cx, h/2 - eng->cy);
 
+    // NPC и Игрок
     draw_rect(eng, eng->npx - 40, eng->npy - 40, 80, 80, 0.4, 0.4, 0.4, 1.0, view);
     draw_rect(eng, eng->px - 40, eng->py - 40, 80, 80, 0, 0, 0, 1.0, view);
 
-    // --- UI (НЕПРОЗРАЧНЫЙ И МЕЛКИЙ) ---
+    // ИНТЕРФЕЙС
     mat4 ui;
     mat4_ortho(&ui, 0, w, h, 0);
-
     if (eng->tj) {
-        glLineWidth(6.0f);
-        // Основание: меньше (радиус 80) и непрозрачное (alpha 1.0)
-        draw_circle(eng, eng->jsx, eng->jsy, 80, 0, 0, 0, 0, 1.0, ui);
-        // Стик: меньше (радиус 35) и непрозрачный (alpha 1.0)
-        draw_circle(eng, eng->jcx, eng->jcy, 35, 1, 0, 0, 0, 1.0, ui);
+        // Кольцо: радиус 70, толщина линии 6 (теперь не рвется)
+        draw_circle_advanced(eng, eng->jsx, eng->jsy, 70, 6, 0, 0, 0, ui);
+        // Стик: радиус 30, залитый
+        draw_circle_advanced(eng, eng->jcx, eng->jcy, 30, 0, 0, 0, 0, ui);
     }
 
     eglSwapBuffers(eng->disp, eng->surf);
@@ -95,7 +113,7 @@ static int32_t handle_input(struct android_app* app, AInputEvent* ev) {
         } else if (act == AMOTION_EVENT_ACTION_MOVE) {
             float dx = x - eng->jsx, dy = y - eng->jsy;
             float d = sqrtf(dx*dx + dy*dy);
-            if (d > 80.0f) { dx *= 80.0f/d; dy *= 80.0f/d; }
+            if (d > 70.0f) { dx *= 70.0f/d; dy *= 70.0f/d; }
             eng->jcx = eng->jsx + dx; eng->jcy = eng->jsy + dy;
         } else if (act == AMOTION_EVENT_ACTION_UP) eng->tj = 0;
         return 1;
@@ -115,7 +133,7 @@ static void handle_cmd(struct android_app* app, int32_t cmd) {
         GLuint fs = glCreateShader(GL_FRAGMENT_SHADER); glShaderSource(fs, 1, &FS, 0); glCompileShader(fs);
         eng->prog = glCreateProgram(); glAttachShader(eng->prog, vs); glAttachShader(eng->prog, fs); glLinkProgram(eng->prog);
         eng->mvp_loc = glGetUniformLocation(eng->prog, "m"); eng->col_loc = glGetUniformLocation(eng->prog, "c");
-        eng->px = 0; eng->py = 0; eng->cx = 0; eng->cy = 0; eng->npx = 300; eng->npy = 300;
+        eng->px = 0; eng->py = 0; eng->cx = 0; eng->cy = 0; eng->npx = 250; eng->npy = 250;
     } else if (cmd == APP_CMD_TERM_WINDOW) eng->disp = NULL;
 }
 
