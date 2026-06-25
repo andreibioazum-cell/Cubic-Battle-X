@@ -143,7 +143,7 @@ void draw(struct engine* eng) {
     eng->camX = lerp(eng->camX, eng->player.x, 0.18f);
     eng->camY = lerp(eng->camY, eng->player.y, 0.18f);
     
-    // Очистка
+    // Очистка экрана
     glViewport(0, 0, w, h);
     glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
@@ -156,37 +156,50 @@ void draw(struct engine* eng) {
     mat4_ortho(&view, 0, w, h, 0);
     mat4_translate(&view, w/2 - eng->camX, h/2 - eng->camY);
     
-    // Рисование пола
+    // РИСУЕМ ПОЛ
     if(eng->floor_tex) {
         glUniform1i(eng->use_tex_loc, 1);
         glBindTexture(GL_TEXTURE_2D, eng->floor_tex);
         draw_quad(eng->mvp_loc, eng->use_tex_loc, 
                   -1000, -1000, 2000, 2000, 20.0f, 20.0f, view);
     } else {
-        // Если текстура не загружена - рисуем серый фон
         glUniform1i(eng->use_tex_loc, 0);
         glUniform4f(eng->col_loc, 0.3f, 0.3f, 0.3f, 1.0f);
         draw_quad(eng->mvp_loc, eng->use_tex_loc,
                   -1000, -1000, 2000, 2000, 0, 0, view);
     }
     
-    // Рисование игрока
+    // РИСУЕМ ИГРОКА (Чёрный непрозрачный)
     glUniform1i(eng->use_tex_loc, 0);
     glUniform4f(eng->col_loc, 0.0f, 0.0f, 0.0f, 1.0f);
     draw_quad(eng->mvp_loc, eng->use_tex_loc,
               eng->player.x-40, eng->player.y-40, 80, 80, 0, 0, view);
     
-    // Рисование UI (джойстик)
+    // РИСУЕМ UI (Джойстик)
     mat4 ui;
     mat4_ortho(&ui, 0, w, h, 0);
+    
     if(eng->joy.active) {
+        // Обводка джойстика - белая, толстая (15 пикселей)
         glUniform1i(eng->use_tex_loc, 0);
-        glUniform4f(eng->col_loc, 1.0f, 1.0f, 1.0f, 0.5f);
+        glUniform4f(eng->col_loc, 1.0f, 1.0f, 1.0f, 1.0f); // Белая, непрозрачная
         ui_draw_circle(eng->mvp_loc, eng->col_loc, 
-                       eng->joy.sx, eng->joy.sy, 80, 6, ui);
-        glUniform4f(eng->col_loc, 0.0f, 0.0f, 0.0f, 0.7f);
+                       eng->joy.sx, eng->joy.sy, 100, 15, ui);
+        
+        // Заливка джойстика - серая полупрозрачная
+        glUniform4f(eng->col_loc, 0.3f, 0.3f, 0.3f, 0.5f); // Серая, полупрозрачная
         ui_draw_circle(eng->mvp_loc, eng->col_loc,
-                       eng->joy.cx, eng->joy.cy, 35, 0, ui);
+                       eng->joy.sx, eng->joy.sy, 85, 0, ui);
+        
+        // Стик - чёрный непрозрачный
+        glUniform4f(eng->col_loc, 0.0f, 0.0f, 0.0f, 1.0f); // Чёрный, непрозрачный
+        ui_draw_circle(eng->mvp_loc, eng->col_loc,
+                       eng->joy.cx, eng->joy.cy, 50, 0, ui);
+        
+        // Обводка стика - белая тонкая
+        glUniform4f(eng->col_loc, 1.0f, 1.0f, 1.0f, 0.8f);
+        ui_draw_circle(eng->mvp_loc, eng->col_loc,
+                       eng->joy.cx, eng->joy.cy, 50, 5, ui);
     }
     
     eglSwapBuffers(eng->disp, eng->surf);
@@ -212,9 +225,10 @@ int32_t handle_input(struct android_app* app, AInputEvent* ev) {
             float dx = x - eng->joy.sx;
             float dy = y - eng->joy.sy;
             float d = sqrtf(dx*dx + dy*dy);
-            if(d > 80.0f) {
-                dx *= 80.0f / d;
-                dy *= 80.0f / d;
+            float max_dist = 150.0f; // Максимальное расстояние для стика
+            if(d > max_dist) {
+                dx *= max_dist / d;
+                dy *= max_dist / d;
             }
             eng->joy.cx = eng->joy.sx + dx;
             eng->joy.cy = eng->joy.sy + dy;
