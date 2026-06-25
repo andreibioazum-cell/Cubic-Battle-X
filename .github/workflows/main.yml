@@ -1,4 +1,4 @@
-name: Build Horror APK
+name: Build 2D APK
 on: [push, workflow_dispatch]
 jobs:
   build:
@@ -9,23 +9,21 @@ jobs:
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r25c
-      - name: Build Libraries
+      - name: Build
         run: |
           $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android30-clang \
           -shared -fPIC *.c $ANDROID_NDK_ROOT/sources/android/native_app_glue/android_native_app_glue.c \
-          -o libmain_64.so -I. -I$ANDROID_NDK_ROOT/sources/android/native_app_glue \
-          -landroid -llog -lGLESv2 -lEGL -lm
-          
+          -o libmain_64.so -I. -I$ANDROID_NDK_ROOT/sources/android/native_app_glue -landroid -llog -lGLESv2 -lEGL -lm
+
           $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi30-clang \
           -shared -fPIC *.c $ANDROID_NDK_ROOT/sources/android/native_app_glue/android_native_app_glue.c \
-          -o libmain_32.so -I. -I$ANDROID_NDK_ROOT/sources/android/native_app_glue \
-          -landroid -llog -lGLESv2 -lEGL -lm
-      - name: Create APK
+          -o libmain_32.so -I. -I$ANDROID_NDK_ROOT/sources/android/native_app_glue -landroid -llog -lGLESv2 -lEGL -lm
+      - name: Package
         run: |
           cat <<EOF > AndroidManifest.xml
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.horror.battle">
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.blackcube.game">
               <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
-              <application android:label="Horror Grapnel" android:hasCode="false" android:extractNativeLibs="true">
+              <application android:label="Black Cube 2D" android:hasCode="false" android:extractNativeLibs="true">
                   <activity android:name="android.app.NativeActivity" android:exported="true">
                       <meta-data android:name="android.app.lib_name" android:value="main" />
                       <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
@@ -41,8 +39,8 @@ jobs:
           $BUILD_TOOLS/zipalign -v 4 unsigned.apk aligned.apk
           keytool -genkey -v -keystore d.ks -storepass android -alias a -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=A"
           $BUILD_TOOLS/apksigner sign --ks d.ks --ks-pass pass:android --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true --out final.apk aligned.apk
-      - name: Upload APK
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: Horror-Game
+          name: BlackCube-2D
           path: final.apk
