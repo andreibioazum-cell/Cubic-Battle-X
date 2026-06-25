@@ -41,7 +41,7 @@ jobs:
           mkdir -p staging/lib/arm64-v8a staging/lib/armeabi-v7a staging/assets
           cp libmain_64.so staging/lib/arm64-v8a/libmain.so
           cp libmain_32.so staging/lib/armeabi-v7a/libmain.so
-          [ -d assets ] && cp assets/* staging/assets/ || true
+          if [ -d assets ]; then cp -r assets/* staging/assets/; fi
           
           BUILD_TOOLS=$ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools/ | tail -n 1)
           $BUILD_TOOLS/aapt package -f -M AndroidManifest.xml \
