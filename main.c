@@ -22,20 +22,17 @@ void draw_rect(struct engine* eng, float x, float y, float w, float h, float r, 
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
 
-// Улучшенная отрисовка круга без пикселей и разрывов
+// ИСПРАВЛЕНО: Кольцо теперь без дырок справа
 void draw_circle_advanced(struct engine* eng, float x, float y, float radius, float thickness, float r, float g, float b, mat4 m) {
-    // 144 точки для идеальной гладкости
-    float v[288]; 
-    if (thickness > 0) { // Рисуем кольцо мешем (Triangle Strip)
-        float v_ring[576];
-        for(int i=0; i <= 144; i++) {
-            float angle = i * (2.0f * M_PI / 144.0f);
+    const int segments = 100; // 100 достаточно для гладкости
+    if (thickness > 0) { 
+        float v_ring[(segments + 1) * 4];
+        for(int i = 0; i <= segments; i++) {
+            float angle = i * (2.0f * M_PI / (float)segments);
             float cos_a = cosf(angle);
             float sin_a = sinf(angle);
-            // Внешняя точка
-            v_ring[i*4] = x + cos_a * radius;
+            v_ring[i*4]   = x + cos_a * radius;
             v_ring[i*4+1] = y + sin_a * radius;
-            // Внутренняя точка
             v_ring[i*4+2] = x + cos_a * (radius - thickness);
             v_ring[i*4+3] = y + sin_a * (radius - thickness);
         }
@@ -43,18 +40,19 @@ void draw_circle_advanced(struct engine* eng, float x, float y, float radius, fl
         glUniform4f(eng->col_loc, r, g, b, 1.0);
         glVertexAttribPointer(0, 2, GL_FLOAT, 0, 0, v_ring);
         glEnableVertexAttribArray(0);
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, 288);
-    } else { // Залитый круг (Стик)
-        for(int i=0; i < 144; i++) {
-            float angle = i * (2.0f * M_PI / 144.0f);
-            v[i*2] = x + cosf(angle) * radius;
-            v[i*2+1] = y + sinf(angle) * radius;
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, (segments + 1) * 2);
+    } else { 
+        float v_fill[(segments + 1) * 2];
+        for(int i = 0; i <= segments; i++) {
+            float angle = i * (2.0f * M_PI / (float)segments);
+            v_fill[i*2]   = x + cosf(angle) * radius;
+            v_fill[i*2+1] = y + sinf(angle) * radius;
         }
         glUniformMatrix4fv(eng->mvp_loc, 1, 0, m.m);
         glUniform4f(eng->col_loc, r, g, b, 1.0);
-        glVertexAttribPointer(0, 2, GL_FLOAT, 0, 0, v);
+        glVertexAttribPointer(0, 2, GL_FLOAT, 0, 0, v_fill);
         glEnableVertexAttribArray(0);
-        glDrawArrays(GL_TRIANGLE_FAN, 0, 144);
+        glDrawArrays(GL_TRIANGLE_FAN, 0, segments + 1);
     }
 }
 
@@ -67,14 +65,15 @@ static void draw(struct engine* eng) {
         float dx = eng->jcx - eng->jsx, dy = eng->jcy - eng->jsy;
         float d = sqrtf(dx*dx + dy*dy);
         if (d > 5.0f) {
-            eng->px += (dx/d) * 6.5f; // ЗАМЕДЛЕНО: было 12.0
-            eng->py += (dy/d) * 6.5f;
+            // СКОРОСТЬ: 7.5f (+15% от 6.5)
+            eng->px += (dx/d) * 7.5f; 
+            eng->py += (dy/d) * 7.5f;
         }
     }
 
-    // КАМЕРА: 0.3f вместо 0.1f (быстрее центрируется)
-    eng->cx = lerp(eng->cx, eng->px, 0.3f);
-    eng->cy = lerp(eng->cy, eng->py, 0.3f);
+    // КАМЕРА: возвращена плавность (0.18f - золотая середина)
+    eng->cx = lerp(eng->cx, eng->px, 0.18f);
+    eng->cy = lerp(eng->cy, eng->py, 0.18f);
 
     glViewport(0, 0, w, h);
     glClearColor(0.9f, 0.9f, 0.9f, 1.0f);
@@ -85,17 +84,14 @@ static void draw(struct engine* eng) {
     mat4_ortho(&view, 0, w, h, 0);
     mat4_translate(&view, w/2 - eng->cx, h/2 - eng->cy);
 
-    // NPC и Игрок
     draw_rect(eng, eng->npx - 40, eng->npy - 40, 80, 80, 0.4, 0.4, 0.4, 1.0, view);
     draw_rect(eng, eng->px - 40, eng->py - 40, 80, 80, 0, 0, 0, 1.0, view);
 
-    // ИНТЕРФЕЙС
     mat4 ui;
     mat4_ortho(&ui, 0, w, h, 0);
     if (eng->tj) {
-        // Кольцо: радиус 70, толщина линии 6 (теперь не рвется)
+        // Кольцо теперь целое (радиус 70, толщина 6)
         draw_circle_advanced(eng, eng->jsx, eng->jsy, 70, 6, 0, 0, 0, ui);
-        // Стик: радиус 30, залитый
         draw_circle_advanced(eng, eng->jcx, eng->jcy, 30, 0, 0, 0, 0, ui);
     }
 
