@@ -9,12 +9,10 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
-#include "math_util.h"
-#include "game_logic.h"
+#include "utils.h"
 #include "shaders.h"
 #include "entity.h"
 #include "ui.h"
-#include "utils.h"
 
 struct engine {
     struct android_app* app; EGLDisplay disp; EGLSurface surf; EGLContext ctx;
@@ -30,16 +28,17 @@ GLuint load_tex(struct engine* eng, const char* name) {
     unsigned char* b = malloc(s); AAsset_read(a, b, s); AAsset_close(a);
     int w, h, n; unsigned char* d = stbi_load_from_memory(b, s, &w, &h, &n, 4); free(b);
     GLuint t; glGenTextures(1, &t); glBindTexture(GL_TEXTURE_2D, t);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, d);
-    glGenerateMipmap(GL_TEXTURE_2D); stbi_image_free(d); return t;
+    stbi_image_free(d); return t;
 }
 
-static void draw_frame(struct engine* eng) {
+static void draw(struct engine* eng) {
     if(!eng->disp) return;
     int w = ANativeWindow_getWidth(eng->app->window), h = ANativeWindow_getHeight(eng->app->window);
     
-    // Логика движения
     if(eng->joy.active) {
         float dx = eng->joy.cx - eng->joy.sx, dy = eng->joy.cy - eng->joy.sy;
         float d = sqrtf(dx*dx + dy*dy);
@@ -48,7 +47,7 @@ static void draw_frame(struct engine* eng) {
     eng->camX = lerp(eng->camX, eng->player.x, 0.1f);
     eng->camY = lerp(eng->camY, eng->player.y, 0.1f);
 
-    glViewport(0,0,w,h); glClearColor(0.1, 0.1, 0.1, 1); glClear(GL_COLOR_BUFFER_BIT);
+    glViewport(0,0,w,h); glClearColor(0.2, 0.2, 0.2, 1); glClear(GL_COLOR_BUFFER_BIT);
     glUseProgram(eng->prog);
     glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
@@ -56,33 +55,21 @@ static void draw_frame(struct engine* eng) {
     mat4 world_view = view;
     mat4_translate(&world_view, w/2.0f - eng->camX, h/2.0f - eng->camY);
 
-    // 1. ПОЛ
+    // РИСУЕМ ПОЛ (Тайлинг 40x40 на площади 4000x4000)
     glUniform1i(eng->use_tex_loc, 1); glBindTexture(GL_TEXTURE_2D, eng->floor_tex);
-    draw_quad(eng->mvp_loc, 0, 0, MAP_W*TILE_SIZE, MAP_H*TILE_SIZE, 16, 9, world_view);
+    draw_quad(eng->mvp_loc, -2000, -2000, 4000, 4000, 40.0f, 40.0f, world_view);
 
-    // 2. СТЕНЫ
-    glUniform1i(eng->use_tex_loc, 0);
-    for(int i=0; i<MAP_H; i++) {
-        for(int j=0; j<MAP_W; j++) {
-            if(WORLD_MAP[i][j] == 1) {
-                glUniform4f(eng->col_loc, 0.3, 0.3, 0.3, 1.0);
-                draw_quad(eng->mvp_loc, j*TILE_SIZE, i*TILE_SIZE, TILE_SIZE, TILE_SIZE, 0, 0, world_view);
-            }
-        }
-    }
+    // РИСУЕМ ИГРОКА (Синий куб)
+    glUniform1i(eng->use_tex_loc, 0); glUniform4f(eng->col_loc, 0, 0.5, 1, 1);
+    draw_quad(eng->mvp_loc, eng->player.x-40, eng->player.y-40, 80, 80, 0, 0, world_view);
 
-    // 3. ИГРОК
-    glUniform4f(eng->col_loc, 0, 0.8, 1, 1);
-    draw_quad(eng->mvp_loc, eng->player.x-25, eng->player.y-25, 50, 50, 0, 0, world_view);
-
-    // 4. UI
+    // UI
     if(eng->joy.active) {
-        glUniform4f(eng->col_loc, 1, 1, 1, 0.5);
-        ui_draw_circle(eng->mvp_loc, eng->joy.sx, eng->joy.sy, 120, 10, view);
-        glUniform4f(eng->col_loc, 1, 1, 1, 1);
-        ui_draw_circle(eng->mvp_loc, eng->joy.cx, eng->joy.cy, 50, 0, view);
+        glUniform4f(eng->col_loc, 1, 1, 1, 0.4);
+        ui_draw_circle(eng->mvp_loc, eng->joy.sx, eng->joy.sy, 100, 8, view);
+        glUniform4f(eng->col_loc, 1, 1, 1, 0.8);
+        ui_draw_circle(eng->mvp_loc, eng->joy.cx, eng->joy.cy, 40, 0, view);
     }
-
     eglSwapBuffers(eng->disp, eng->surf);
 }
 
@@ -91,11 +78,10 @@ static int32_t handle_input(struct android_app* app, AInputEvent* ev) {
     if (AInputEvent_getType(ev) == AINPUT_EVENT_TYPE_MOTION) {
         int a = AMotionEvent_getAction(ev) & AMOTION_EVENT_ACTION_MASK;
         float x = AMotionEvent_getX(ev, 0), y = AMotionEvent_getY(ev, 0);
-        if(a == AMOTION_EVENT_ACTION_DOWN) { 
-            eng->joy.active=1; eng->joy.sx=eng->joy.cx=x; eng->joy.sy=eng->joy.cy=y; 
-        } else if(a == AMOTION_EVENT_ACTION_MOVE) {
+        if(a == AMOTION_EVENT_ACTION_DOWN) { eng->joy.active=1; eng->joy.sx=eng->joy.cx=x; eng->joy.sy=eng->joy.cy=y; }
+        else if(a == AMOTION_EVENT_ACTION_MOVE) {
             float dx=x-eng->joy.sx, dy=y-eng->joy.sy, d=sqrtf(dx*dx+dy*dy);
-            if(d > 120.0f) { dx*=120.0f/d; dy*=120.0f/d; }
+            if(d > 100.0f) { dx*=100.0f/d; dy*=100.0f/d; }
             eng->joy.cx=eng->joy.sx+dx; eng->joy.cy=eng->joy.sy+dy;
         } else if(a == AMOTION_EVENT_ACTION_UP) eng->joy.active=0;
         return 1;
@@ -111,18 +97,14 @@ static void handle_cmd(struct android_app* app, int32_t cmd) {
         eng->surf = eglCreateWindowSurface(eng->disp, cfg, eng->app->window, NULL);
         eng->ctx = eglCreateContext(eng->disp, cfg, NULL, (EGLint[]){EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE});
         eglMakeCurrent(eng->disp, eng->surf, eng->surf, eng->ctx);
-        
         GLuint vs=glCreateShader(GL_VERTEX_SHADER); glShaderSource(vs,1,&VS,0); glCompileShader(vs);
         GLuint fs=glCreateShader(GL_FRAGMENT_SHADER); glShaderSource(fs,1,&FS,0); glCompileShader(fs);
         eng->prog=glCreateProgram(); glAttachShader(eng->prog,vs); glAttachShader(eng->prog,fs);
         glBindAttribLocation(eng->prog, 0, "p"); glBindAttribLocation(eng->prog, 1, "uv");
         glLinkProgram(eng->prog);
-        
-        eng->mvp_loc=glGetUniformLocation(eng->prog,"m"); 
-        eng->col_loc=glGetUniformLocation(eng->prog,"c"); 
-        eng->use_tex_loc=glGetUniformLocation(eng->prog,"use_tex");
+        eng->mvp_loc=glGetUniformLocation(eng->prog,"m"); eng->col_loc=glGetUniformLocation(eng->prog,"c"); eng->use_tex_loc=glGetUniformLocation(eng->prog,"use_tex");
         eng->floor_tex = load_tex(eng, "floor.png");
-        eng->player.x = 200; eng->player.y = 200; eng->player.speed = 8.0f;
+        eng->player.speed = 8.0f;
     } else if(cmd == APP_CMD_TERM_WINDOW) eng->disp = NULL;
 }
 
@@ -130,10 +112,7 @@ void android_main(struct android_app* state) {
     struct engine eng={0}; state->userData=&eng; state->onAppCmd=handle_cmd; state->onInputEvent=handle_input; eng.app=state;
     while(1) {
         int ev; struct android_poll_source* src;
-        while(ALooper_pollOnce(eng.disp?0:-1, 0, &ev, (void**)&src)>=0) { 
-            if(src) src->process(state,src); 
-            if(state->destroyRequested) return; 
-        }
-        if(eng.disp) draw_frame(&eng);
+        while(ALooper_pollOnce(eng.disp?0:-1, 0, &ev, (void**)&src)>=0) { if(src) src->process(state,src); if(state->destroyRequested) return; }
+        if(eng.disp) draw(&eng);
     }
 }
