@@ -1,6 +1,6 @@
 #ifndef UI_H
 #define UI_H
-#include "utils.h"
+#include "utils.h"  // Все равно включает, но защищено
 
 typedef struct {
     float sx, sy, cx, cy;
