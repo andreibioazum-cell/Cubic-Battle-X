@@ -1,6 +1,6 @@
 #ifndef ENTITY_H
 #define ENTITY_H
-#include "utils.h"
+#include "utils.h"  // Все равно включает, но защищено
 
 typedef struct {
     float x, y, speed;
