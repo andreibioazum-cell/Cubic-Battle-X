@@ -26,17 +26,29 @@ GLuint load_tex(struct engine* eng, const char* name) {
     if(!a) return 0;
     size_t s = AAsset_getLength(a);
     unsigned char* b = malloc(s); AAsset_read(a, b, s); AAsset_close(a);
-    int w, h, n; unsigned char* d = stbi_load_from_memory(b, s, &w, &h, &n, 4); free(b);
+    int w, h, n; 
+    unsigned char* d = stbi_load_from_memory(b, s, &w, &h, &n, 4); 
+    free(b);
+    
+    if(!d) return 0;
+
     GLuint t; glGenTextures(1, &t); glBindTexture(GL_TEXTURE_2D, t);
+    
+    // Настройки для тайлинга (повторения)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, d);
-    stbi_image_free(d); return t;
+    glGenerateMipmap(GL_TEXTURE_2D); // Чтобы не было черного экрана
+    
+    stbi_image_free(d); 
+    return t;
 }
 
 static void draw(struct engine* eng) {
-    if(!eng->disp) return;
+    if(!eng->disp || !eng->surf) return;
     int w = ANativeWindow_getWidth(eng->app->window), h = ANativeWindow_getHeight(eng->app->window);
     
     if(eng->joy.active) {
@@ -47,7 +59,10 @@ static void draw(struct engine* eng) {
     eng->camX = lerp(eng->camX, eng->player.x, 0.1f);
     eng->camY = lerp(eng->camY, eng->player.y, 0.1f);
 
-    glViewport(0,0,w,h); glClearColor(0.2, 0.2, 0.2, 1); glClear(GL_COLOR_BUFFER_BIT);
+    glViewport(0,0,w,h); 
+    glClearColor(0.1, 0.1, 0.1, 1.0); // Темный фон если текстура не прогрузится
+    glClear(GL_COLOR_BUFFER_BIT);
+    
     glUseProgram(eng->prog);
     glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
@@ -55,20 +70,23 @@ static void draw(struct engine* eng) {
     mat4 world_view = view;
     mat4_translate(&world_view, w/2.0f - eng->camX, h/2.0f - eng->camY);
 
-    // РИСУЕМ ПОЛ (Тайлинг 40x40 на площади 4000x4000)
-    glUniform1i(eng->use_tex_loc, 1); glBindTexture(GL_TEXTURE_2D, eng->floor_tex);
-    draw_quad(eng->mvp_loc, -2000, -2000, 4000, 4000, 40.0f, 40.0f, world_view);
+    // 1. РИСУЕМ ПОЛ
+    glUniform1i(eng->use_tex_loc, 1); 
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, eng->floor_tex);
+    // Огромный пол 10000x10000, тайлинг 100 раз
+    draw_quad(eng->mvp_loc, -5000, -5000, 10000, 10000, 100.0f, 100.0f, world_view);
 
-    // РИСУЕМ ИГРОКА (Синий куб)
-    glUniform1i(eng->use_tex_loc, 0); glUniform4f(eng->col_loc, 0, 0.5, 1, 1);
+    // 2. РИСУЕМ ИГРОКА (Синий куб)
+    glUniform1i(eng->use_tex_loc, 0); 
+    glUniform4f(eng->col_loc, 0.0, 0.6, 1.0, 1.0);
     draw_quad(eng->mvp_loc, eng->player.x-40, eng->player.y-40, 80, 80, 0, 0, world_view);
 
-    // UI
+    // 3. UI ДЖОЙСТИК (Черный, непрозрачный)
     if(eng->joy.active) {
-        glUniform4f(eng->col_loc, 1, 1, 1, 0.4);
-        ui_draw_circle(eng->mvp_loc, eng->joy.sx, eng->joy.sy, 100, 8, view);
-        glUniform4f(eng->col_loc, 1, 1, 1, 0.8);
-        ui_draw_circle(eng->mvp_loc, eng->joy.cx, eng->joy.cy, 40, 0, view);
+        glUniform4f(eng->col_loc, 0, 0, 0, 1.0); // Чисто черный
+        ui_draw_circle(eng->mvp_loc, eng->joy.sx, eng->joy.sy, 120, 12, view); // Обводка
+        ui_draw_circle(eng->mvp_loc, eng->joy.cx, eng->joy.cy, 50, 0, view);   // Центр
     }
     eglSwapBuffers(eng->disp, eng->surf);
 }
@@ -78,10 +96,11 @@ static int32_t handle_input(struct android_app* app, AInputEvent* ev) {
     if (AInputEvent_getType(ev) == AINPUT_EVENT_TYPE_MOTION) {
         int a = AMotionEvent_getAction(ev) & AMOTION_EVENT_ACTION_MASK;
         float x = AMotionEvent_getX(ev, 0), y = AMotionEvent_getY(ev, 0);
-        if(a == AMOTION_EVENT_ACTION_DOWN) { eng->joy.active=1; eng->joy.sx=eng->joy.cx=x; eng->joy.sy=eng->joy.cy=y; }
-        else if(a == AMOTION_EVENT_ACTION_MOVE) {
+        if(a == AMOTION_EVENT_ACTION_DOWN) { 
+            eng->joy.active=1; eng->joy.sx=eng->joy.cx=x; eng->joy.sy=eng->joy.cy=y; 
+        } else if(a == AMOTION_EVENT_ACTION_MOVE) {
             float dx=x-eng->joy.sx, dy=y-eng->joy.sy, d=sqrtf(dx*dx+dy*dy);
-            if(d > 100.0f) { dx*=100.0f/d; dy*=100.0f/d; }
+            if(d > 120.0f) { dx*=120.0f/d; dy*=120.0f/d; }
             eng->joy.cx=eng->joy.sx+dx; eng->joy.cy=eng->joy.sy+dy;
         } else if(a == AMOTION_EVENT_ACTION_UP) eng->joy.active=0;
         return 1;
@@ -92,19 +111,26 @@ static int32_t handle_input(struct android_app* app, AInputEvent* ev) {
 static void handle_cmd(struct android_app* app, int32_t cmd) {
     struct engine* eng = (struct engine*)app->userData;
     if(cmd == APP_CMD_INIT_WINDOW) {
+        // Установка нативного разрешения (убирает пиксельность)
+        ANativeWindow_setBuffersGeometry(app->window, 0, 0, WINDOW_FORMAT_RGBA_8888);
+        
         eng->disp = eglGetDisplay(EGL_DEFAULT_DISPLAY); eglInitialize(eng->disp, 0, 0);
         EGLConfig cfg; EGLint n; eglChooseConfig(eng->disp, (EGLint[]){EGL_RENDERABLE_TYPE,EGL_OPENGL_ES2_BIT,EGL_BLUE_SIZE,8,EGL_NONE}, &cfg, 1, &n);
         eng->surf = eglCreateWindowSurface(eng->disp, cfg, eng->app->window, NULL);
         eng->ctx = eglCreateContext(eng->disp, cfg, NULL, (EGLint[]){EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE});
         eglMakeCurrent(eng->disp, eng->surf, eng->surf, eng->ctx);
+        
         GLuint vs=glCreateShader(GL_VERTEX_SHADER); glShaderSource(vs,1,&VS,0); glCompileShader(vs);
         GLuint fs=glCreateShader(GL_FRAGMENT_SHADER); glShaderSource(fs,1,&FS,0); glCompileShader(fs);
         eng->prog=glCreateProgram(); glAttachShader(eng->prog,vs); glAttachShader(eng->prog,fs);
         glBindAttribLocation(eng->prog, 0, "p"); glBindAttribLocation(eng->prog, 1, "uv");
         glLinkProgram(eng->prog);
-        eng->mvp_loc=glGetUniformLocation(eng->prog,"m"); eng->col_loc=glGetUniformLocation(eng->prog,"c"); eng->use_tex_loc=glGetUniformLocation(eng->prog,"use_tex");
+        
+        eng->mvp_loc=glGetUniformLocation(eng->prog,"m"); 
+        eng->col_loc=glGetUniformLocation(eng->prog,"c"); 
+        eng->use_tex_loc=glGetUniformLocation(eng->prog,"use_tex");
         eng->floor_tex = load_tex(eng, "floor.png");
-        eng->player.speed = 8.0f;
+        eng->player.speed = 10.0f;
     } else if(cmd == APP_CMD_TERM_WINDOW) eng->disp = NULL;
 }
 
