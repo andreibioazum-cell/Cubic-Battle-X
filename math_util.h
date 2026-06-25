@@ -1,4 +1,4 @@
-#ifndef MATH_H
+ #ifndef MATH_H
 #define MATH_H
 #include <math.h>
 typedef struct { float m[16]; } mat4;
