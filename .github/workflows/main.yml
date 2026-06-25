@@ -1,4 +1,4 @@
-name: Build BlackCube 2D
+name: Build BlackCube divided APK
 on: [push, workflow_dispatch]
 jobs:
   build:
@@ -23,7 +23,7 @@ jobs:
           cat <<EOF > AndroidManifest.xml
           <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.blackcube.game">
               <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
-              <application android:label="Black Cube 2D" android:hasCode="false" android:extractNativeLibs="true">
+              <application android:label="Black Cube Divided" android:hasCode="false" android:extractNativeLibs="true">
                   <activity android:name="android.app.NativeActivity" android:exported="true">
                       <meta-data android:name="android.app.lib_name" android:value="main" />
                       <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
@@ -31,9 +31,10 @@ jobs:
               </application>
           </manifest>
           EOF
-          mkdir -p staging/lib/arm64-v8a staging/lib/armeabi-v7a
+          mkdir -p staging/lib/arm64-v8a staging/lib/armeabi-v7a staging/assets
           cp libmain_64.so staging/lib/arm64-v8a/libmain.so
           cp libmain_32.so staging/lib/armeabi-v7a/libmain.so
+          if [ -d assets ]; then cp assets/* staging/assets/; fi
           BUILD_TOOLS=$ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools/ | tail -n 1)
           $BUILD_TOOLS/aapt package -f -M AndroidManifest.xml -I $ANDROID_HOME/platforms/android-34/android.jar -F unsigned.apk staging/
           $BUILD_TOOLS/zipalign -v 4 unsigned.apk aligned.apk
@@ -42,5 +43,5 @@ jobs:
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: BlackCube-2D
+          name: BlackCube-Divided
           path: final.apk
