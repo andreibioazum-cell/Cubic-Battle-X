@@ -1,5 +1,7 @@
 #include <android_native_app_glue.h>
 #include <android/asset_manager.h>
+#include <EGL/egl.h>
+#include <android/log.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -8,6 +10,8 @@
 #include "shaders.h"
 #include "entity.h"
 #include "ui.h"
+
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "BlackCube", __VA_ARGS__)
 
 struct engine {
     struct android_app* app;
@@ -26,17 +30,23 @@ struct engine {
 GLuint load_texture(struct engine* eng, const char* name) {
     AAsset* a = AAssetManager_open(eng->app->activity->assetManager, 
                                    name, AASSET_MODE_BUFFER);
-    if(!a) return 0;
+    if(!a) {
+        LOGI("Failed to open asset: %s", name);
+        return 0;
+    }
     
     size_t size = AAsset_getLength(a);
-    unsigned char* buffer = malloc(size);
+    unsigned char* buffer = (unsigned char*)malloc(size);
     AAsset_read(a, buffer, size);
     AAsset_close(a);
     
     int w, h, n;
     unsigned char* data = stbi_load_from_memory(buffer, size, &w, &h, &n, 4);
     free(buffer);
-    if(!data) return 0;
+    if(!data) {
+        LOGI("Failed to load image: %s", name);
+        return 0;
+    }
     
     GLuint tex;
     glGenTextures(1, &tex);
@@ -48,6 +58,7 @@ GLuint load_texture(struct engine* eng, const char* name) {
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
     glGenerateMipmap(GL_TEXTURE_2D);
     stbi_image_free(data);
+    LOGI("Texture loaded: %s (%dx%d)", name, w, h);
     return tex;
 }
 
@@ -88,6 +99,8 @@ void init_gl(struct engine* eng) {
                                (EGLint[]){EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE});
     eglMakeCurrent(eng->disp, eng->surf, eng->surf, eng->ctx);
     
+    LOGI("EGL initialized");
+    
     // Шейдеры
     GLuint vs = create_shader(GL_VERTEX_SHADER, VS);
     GLuint fs = create_shader(GL_FRAGMENT_SHADER, FS);
@@ -103,6 +116,11 @@ void init_gl(struct engine* eng) {
     // Загрузка текстуры
     eng->floor_tex = load_texture(eng, "floor.png");
     eng->player.speed = 7.5f;
+    eng->player.x = 0;
+    eng->player.y = 0;
+    eng->camX = 0;
+    eng->camY = 0;
+    LOGI("Game initialized");
 }
 
 void draw(struct engine* eng) {
@@ -139,10 +157,18 @@ void draw(struct engine* eng) {
     mat4_translate(&view, w/2 - eng->camX, h/2 - eng->camY);
     
     // Рисование пола
-    glUniform1i(eng->use_tex_loc, 1);
-    glBindTexture(GL_TEXTURE_2D, eng->floor_tex);
-    draw_quad(eng->mvp_loc, eng->use_tex_loc, 
-              -1000, -1000, 2000, 2000, 20.0f, 20.0f, view);
+    if(eng->floor_tex) {
+        glUniform1i(eng->use_tex_loc, 1);
+        glBindTexture(GL_TEXTURE_2D, eng->floor_tex);
+        draw_quad(eng->mvp_loc, eng->use_tex_loc, 
+                  -1000, -1000, 2000, 2000, 20.0f, 20.0f, view);
+    } else {
+        // Если текстура не загружена - рисуем серый фон
+        glUniform1i(eng->use_tex_loc, 0);
+        glUniform4f(eng->col_loc, 0.3f, 0.3f, 0.3f, 1.0f);
+        draw_quad(eng->mvp_loc, eng->use_tex_loc,
+                  -1000, -1000, 2000, 2000, 0, 0, view);
+    }
     
     // Рисование игрока
     glUniform1i(eng->use_tex_loc, 0);
@@ -155,10 +181,10 @@ void draw(struct engine* eng) {
     mat4_ortho(&ui, 0, w, h, 0);
     if(eng->joy.active) {
         glUniform1i(eng->use_tex_loc, 0);
-        glUniform4f(eng->col_loc, 1.0f, 1.0f, 1.0f, 1.0f);
+        glUniform4f(eng->col_loc, 1.0f, 1.0f, 1.0f, 0.5f);
         ui_draw_circle(eng->mvp_loc, eng->col_loc, 
                        eng->joy.sx, eng->joy.sy, 80, 6, ui);
-        glUniform4f(eng->col_loc, 0.0f, 0.0f, 0.0f, 1.0f);
+        glUniform4f(eng->col_loc, 0.0f, 0.0f, 0.0f, 0.7f);
         ui_draw_circle(eng->mvp_loc, eng->col_loc,
                        eng->joy.cx, eng->joy.cy, 35, 0, ui);
     }
@@ -211,7 +237,13 @@ void handle_cmd(struct android_app* app, int32_t cmd) {
             init_gl(eng);
             break;
         case APP_CMD_TERM_WINDOW:
-            eng->disp = NULL;
+            if(eng->disp) {
+                eglMakeCurrent(eng->disp, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+                if(eng->surf) eglDestroySurface(eng->disp, eng->surf);
+                if(eng->ctx) eglDestroyContext(eng->disp, eng->ctx);
+                eglTerminate(eng->disp);
+                eng->disp = NULL;
+            }
             break;
     }
 }
@@ -224,12 +256,17 @@ void android_main(struct android_app* state) {
     state->onInputEvent = handle_input;
     eng.app = state;
     
+    LOGI("Android main started");
+    
     while(1) {
         int events;
         struct android_poll_source* source;
         while(ALooper_pollOnce(eng.disp ? 0 : -1, NULL, &events, (void**)&source) >= 0) {
             if(source) source->process(state, source);
-            if(state->destroyRequested) return;
+            if(state->destroyRequested) {
+                LOGI("Destroy requested");
+                return;
+            }
         }
         if(eng.disp) draw(&eng);
     }
