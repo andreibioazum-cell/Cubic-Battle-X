@@ -12,4 +12,9 @@ static inline void mat4_translate(mat4* m, float x, float y) {
     m->m[12] += x * m->m[0];
     m->m[13] += y * m->m[5];
 }
+
+// Функция для плавной интерполяции (Lerp)
+static inline float lerp(float start, float end, float amount) {
+    return start + (end - start) * amount;
+}
 #endif
