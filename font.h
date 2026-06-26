@@ -10,14 +10,9 @@ static unsigned char FONT_8x8[10][8] = {
     {0x3E,0x22,0x22,0x3E,0x22,0x22,0x22,0x3E}, {0x3E,0x22,0x22,0x3E,0x02,0x02,0x02,0x3E}
 };
 
-static inline void draw_digit(GLint mvp_loc, GLint col_loc, int digit, float x, float y, float size, mat4 view) {
+static inline void draw_digit(GLint mvp_loc, int digit, float x, float y, float size, mat4 view) {
     if(digit < 0 || digit > 9) return;
-    for(int row=0; row<8; row++) {
-        for(int col=0; col<8; col++) {
-            if(FONT_8x8[digit][row] & (0x80 >> col)) {
-                draw_quad(mvp_loc, x + col*size, y + row*size, size, size, 0, 0, view);
-            }
-        }
-    }
+    for(int r=0; r<8; r++) for(int c=0; c<8; c++)
+        if(FONT_8x8[digit][r] & (0x80 >> c)) draw_quad(mvp_loc, x+c*size, y+r*size, size, size, 0, 0, view);
 }
 #endif
