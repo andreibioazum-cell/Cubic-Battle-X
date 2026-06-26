@@ -266,18 +266,23 @@ void android_main(struct android_app* state) {
     state->onInputEvent = handle_input;
     eng.app = state;
 
-    // Главный цикл игры
+    // Главный цикл игры с исправленной обработкой событий
     while (1) {
+        int ident;
         int events;
         struct android_poll_source* source;
-        if (ALooper_pollAll(eng.disp ? 0 : -1, NULL, &events, (void**)&source) >= 0) {
+
+        while ((ident = ALooper_pollOnce(eng.disp ? 0 : -1, NULL, &events, (void**)&source)) >= 0) {
+            
             if (source != NULL) {
                 source->process(state, source);
             }
-        }
 
-        if (state->destroyRequested != 0) {
-            return;
+            if (state->destroyRequested != 0) {
+                // Вызываем код завершения, чтобы корректно освободить ресурсы
+                handle_cmd(state, APP_CMD_TERM_WINDOW);
+                return;
+            }
         }
 
         if (eng.disp) {
