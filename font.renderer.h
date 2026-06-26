@@ -1,0 +1,67 @@
+#ifndef FONT_RENDERER_H
+#define FONT_RENDERER_H
+
+#include <android/asset_manager.h>
+#include <GLES2/gl2.h>
+
+#define STB_TRUETYPE_IMPLEMENTATION
+#include "stb_truetype.h"
+
+#define FONT_ATLAS_WIDTH 512
+#define FONT_ATLAS_HEIGHT 512
+
+typedef struct {
+    GLuint tex_id;
+    stbtt_bakedchar cdata[96]; // ASCII 32-127
+} Font;
+
+// Инициализация шрифта
+static inline int font_init(AAssetManager* mgr, Font* font, const char* filename, float size) {
+    AAsset* asset = AAssetManager_open(mgr, filename, AASSET_MODE_BUFFER);
+    if (!asset) return 0;
+
+    size_t asset_size = AAsset_getLength(asset);
+    unsigned char* ttf_buffer = malloc(asset_size);
+    AAsset_read(asset, ttf_buffer, asset_size);
+    AAsset_close(asset);
+
+    unsigned char* bitmap = malloc(FONT_ATLAS_WIDTH * FONT_ATLAS_HEIGHT);
+    
+    stbtt_BakeFontBitmap(ttf_buffer, 0, size, bitmap, FONT_ATLAS_WIDTH, FONT_ATLAS_HEIGHT, 32, 96, font->cdata);
+    
+    glGenTextures(1, &font->tex_id);
+    glBindTexture(GL_TEXTURE_2D, font->tex_id);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, FONT_ATLAS_WIDTH, FONT_ATLAS_HEIGHT, 0, GL_ALPHA, GL_UNSIGNED_BYTE, bitmap);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    
+    free(bitmap);
+    free(ttf_buffer);
+    return 1;
+}
+
+// Отрисовка текста
+static inline void font_draw_text(GLuint pos_attrib, GLuint uv_attrib, Font* font, const char* text, float* x, float* y) {
+    while (*text) {
+        if (*text >= 32 && *text < 128) {
+            stbtt_aligned_quad q;
+            stbtt_GetBakedQuad(font->cdata, FONT_ATLAS_WIDTH, FONT_ATLAS_HEIGHT, *text - 32, x, y, &q, 1);
+            
+            float vertices[] = {
+                q.x0, q.y0, q.s0, q.t0,
+                q.x1, q.y0, q.s1, q.t0,
+                q.x0, q.y1, q.s0, q.t1,
+                q.x1, q.y1, q.s1, q.t1
+            };
+            
+            glVertexAttribPointer(pos_attrib, 2, GL_FLOAT, GL_FALSE, 16, vertices);
+            glEnableVertexAttribArray(pos_attrib);
+            glVertexAttribPointer(uv_attrib, 2, GL_FLOAT, GL_FALSE, 16, &vertices[2]);
+            glEnableVertexAttribArray(uv_attrib);
+            
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        }
+        text++;
+    }
+}
+#endif
