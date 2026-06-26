@@ -1,4 +1,4 @@
- #define GL_GLEXT_PROTOTYPES
+#define GL_GLEXT_PROTOTYPES
 #include <android_native_app_glue.h>
 #include <android/asset_manager.h>
 #include <EGL/egl.h>
@@ -37,9 +37,11 @@ GLuint load_tex(struct engine* eng, const char* name) {
 }
 
 static void draw(struct engine* eng) {
-    if(!eng->disp || !eng->surf) return;
-    int w = ANativeWindow_getWidth(eng->app->window), h = ANativeWindow_getHeight(eng->app->window);
-    eng->joy.sx = 150; eng->joy.sy = h - 150;
+    if(!eng->disp || !eng->surf || !eng->app->window) return;
+    int w = ANativeWindow_getWidth(eng->app->window);
+    int h = ANativeWindow_getHeight(eng->app->window);
+    
+    eng->joy.sx = 180; eng->joy.sy = h - 180;
     if(!eng->joy.active) { eng->joy.cx = eng->joy.sx; eng->joy.cy = eng->joy.sy; }
 
     glViewport(0,0,w,h); glClearColor(0,0,0,1); glClear(GL_COLOR_BUFFER_BIT);
@@ -47,22 +49,24 @@ static void draw(struct engine* eng) {
     mat4 view; mat4_ortho(&view, 0, w, h, 0);
 
     if(eng->state == STATE_LOBBY) {
-        glUniform1i(eng->use_tex_loc, 0); draw_lobby(eng->mvp_loc, eng->col_loc, w, h, view);
+        glUniform1i(eng->use_tex_loc, 0);
+        draw_lobby(eng->mvp_loc, eng->col_loc, w, h, view);
     } else {
         if(eng->joy.active) {
             float dx=eng->joy.cx-eng->joy.sx, dy=eng->joy.cy-eng->joy.sy, d=sqrtf(dx*dx+dy*dy);
             if(d > 5.0f) entity_update_player(&eng->player, dx/d, dy/d);
         }
-        eng->camX = lerp(eng->camX, eng->player.x, 0.05f); eng->camY = lerp(eng->camY, eng->player.y, 0.05f);
+        eng->camX = lerp(eng->camX, eng->player.x, 0.05f); 
+        eng->camY = lerp(eng->camY, eng->player.y, 0.05f);
         mat4 world = view; mat4_translate(&world, w/2.0f - eng->camX, h/2.0f - eng->camY);
-
+        
         glUniform1i(eng->use_tex_loc, 1); glBindTexture(GL_TEXTURE_2D, eng->floor_tex);
         draw_quad(eng->mvp_loc, 0, 0, MAP_W*TILE_SIZE, MAP_H*TILE_SIZE, 16, 9, world);
 
         glUniform1i(eng->use_tex_loc, 0); glUniform4f(eng->col_loc, 0.2, 0.2, 0.2, 1);
         for(int y=0; y<MAP_H; y++) for(int x=0; x<MAP_W; x++)
             if(WORLD_MAP[y][x] == 1) draw_quad(eng->mvp_loc, x*TILE_SIZE, y*TILE_SIZE, TILE_SIZE, TILE_SIZE, 0, 0, world);
-
+        
         glUniform1i(eng->use_tex_loc, 1); glBindTexture(GL_TEXTURE_2D, eng->player_tex);
         draw_quad_ext(eng->mvp_loc, eng->player.x, eng->player.y, 64, 64, 1, 1, eng->player.angle, world);
 
@@ -83,11 +87,15 @@ static int32_t handle_input(struct android_app* app, AInputEvent* ev) {
         int id = AMotionEvent_getPointerId(ev, idx);
 
         if(eng->state == STATE_LOBBY) {
-            if(code == AMOTION_EVENT_ACTION_DOWN && lobby_check(x, y, ANativeWindow_getWidth(eng->app->window), ANativeWindow_getHeight(eng->app->window))) eng->state = STATE_GAME;
+            if(code == AMOTION_EVENT_ACTION_DOWN) {
+                if(lobby_is_clicked(x, y, ANativeWindow_getWidth(eng->app->window), ANativeWindow_getHeight(eng->app->window))) {
+                    eng->state = STATE_GAME;
+                }
+            }
         } else {
             if(code == AMOTION_EVENT_ACTION_DOWN || code == AMOTION_EVENT_ACTION_POINTER_DOWN) {
                 float dx = x - eng->joy.sx, dy = y - eng->joy.sy;
-                if(sqrtf(dx*dx+dy*dy) < 150.0f && !eng->joy.active) { eng->joy.active=1; eng->joy.pid=id; }
+                if(sqrtf(dx*dx+dy*dy) < 180.0f && !eng->joy.active) { eng->joy.active=1; eng->joy.pid=id; }
             } else if(code == AMOTION_EVENT_ACTION_MOVE) {
                 for(int i=0; i<AMotionEvent_getPointerCount(ev); i++) {
                     if(AMotionEvent_getPointerId(ev, i) == eng->joy.pid) {
@@ -108,27 +116,49 @@ static int32_t handle_input(struct android_app* app, AInputEvent* ev) {
 static void handle_cmd(struct android_app* app, int32_t cmd) {
     struct engine* eng = (struct engine*)app->userData;
     if(cmd == APP_CMD_INIT_WINDOW) {
-        ANativeWindow_setBuffersGeometry(app->window, 640, 360, WINDOW_FORMAT_RGBA_8888);
+        // Убрали установку разрешения, теперь игра работает в полном разрешении экрана
         eng->disp = eglGetDisplay(EGL_DEFAULT_DISPLAY); eglInitialize(eng->disp, 0, 0);
         EGLConfig cfg; EGLint n; eglChooseConfig(eng->disp, (EGLint[]){EGL_RENDERABLE_TYPE,EGL_OPENGL_ES2_BIT,EGL_BLUE_SIZE,8,EGL_NONE}, &cfg, 1, &n);
         eng->surf = eglCreateWindowSurface(eng->disp, cfg, eng->app->window, NULL);
         eng->ctx = eglCreateContext(eng->disp, cfg, NULL, (EGLint[]){EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE});
         eglMakeCurrent(eng->disp, eng->surf, eng->surf, eng->ctx);
+        
         GLuint vs=glCreateShader(GL_VERTEX_SHADER); glShaderSource(vs,1,&VS,0); glCompileShader(vs);
         GLuint fs=glCreateShader(GL_FRAGMENT_SHADER); glShaderSource(fs,1,&FS,0); glCompileShader(fs);
         eng->prog=glCreateProgram(); glAttachShader(eng->prog,vs); glAttachShader(eng->prog,fs);
         glBindAttribLocation(eng->prog, 0, "p"); glBindAttribLocation(eng->prog, 1, "uv"); glLinkProgram(eng->prog);
         eng->mvp_loc=glGetUniformLocation(eng->prog,"m"); eng->col_loc=glGetUniformLocation(eng->prog,"c"); eng->use_tex_loc=glGetUniformLocation(eng->prog,"use_tex");
-        eng->floor_tex = load_tex(eng, "floor.png"); eng->player_tex = load_tex(eng, "ordinary.png");
-        eng->player.x = 200; eng->player.y = 200; eng->player.speed = 8.0f; eng->state = STATE_LOBBY;
-    } else if(cmd == APP_CMD_TERM_WINDOW) eng->disp = NULL;
+        
+        eng->floor_tex = load_tex(eng, "floor.png"); 
+        eng->player_tex = load_tex(eng, "ordinary.png");
+        
+        eng->player.x = 200; eng->player.y = 200; eng->player.speed = 10.0f; 
+        eng->state = STATE_LOBBY;
+    } else if(cmd == APP_CMD_TERM_WINDOW) {
+        // Логика завершения...
+        eglMakeCurrent(eng->disp, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        if (eng->ctx != EGL_NO_CONTEXT) eglDestroyContext(eng->disp, eng->ctx);
+        if (eng->surf != EGL_NO_SURFACE) eglDestroySurface(eng->disp, eng->surf);
+        eglTerminate(eng->disp);
+        eng->disp = EGL_NO_DISPLAY;
+        eng->ctx = EGL_NO_CONTEXT;
+        eng->surf = EGL_NO_SURFACE;
+    }
 }
 
 void android_main(struct android_app* state) {
-    struct engine eng={0}; state->userData=&eng; state->onAppCmd=handle_cmd; state->onInputEvent=handle_input; eng.app=state;
+    struct engine eng={0}; 
+    state->userData=&eng; 
+    state->onAppCmd=handle_cmd; 
+    state->onInputEvent=handle_input; 
+    eng.app=state;
+
     while(1) {
         int ev; struct android_poll_source* src;
-        while(ALooper_pollOnce(eng.disp?0:-1, 0, &ev, (void**)&src)>=0) { if(src) src->process(state,src); if(state->destroyRequested) return; }
+        while(ALooper_pollOnce(eng.disp ? 0 : -1, NULL, &ev, (void**)&src) >= 0) {
+            if(src) src->process(state, src); 
+            if(state->destroyRequested) return;
+        }
         if(eng.disp) draw(&eng);
     }
 }
