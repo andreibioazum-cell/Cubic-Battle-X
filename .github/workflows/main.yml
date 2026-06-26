@@ -18,9 +18,11 @@ jobs:
       with:
         ndk-version: r25c
     
-    - name: Download stb_image
+    - name: Download STB libraries
       run: |
         wget -O stb_image.h https://raw.githubusercontent.com/nothings/stb/master/stb_image.h
+        wget -O stb_truetype.h https://raw.githubusercontent.com/nothings/stb/master/stb_truetype.h
+        wget -O stb_rect_pack.h https://raw.githubusercontent.com/nothings/stb/master/stb_rect_pack.h
     
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
@@ -43,31 +45,13 @@ jobs:
           -I. -I$ANDROID_NDK_ROOT/sources/android/native_app_glue \
           -landroid -llog -lGLESv2 -lEGL -lm
         
-        # x86_64 (для эмуляторов)
-        $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android21-clang \
-          -shared -fPIC main.c \
-          $ANDROID_NDK_ROOT/sources/android/native_app_glue/android_native_app_glue.c \
-          -o libmain_x86_64.so \
-          -I. -I$ANDROID_NDK_ROOT/sources/android/native_app_glue \
-          -landroid -llog -lGLESv2 -lEGL -lm
-        
-        # x86
-        $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/i686-linux-android21-clang \
-          -shared -fPIC main.c \
-          $ANDROID_NDK_ROOT/sources/android/native_app_glue/android_native_app_glue.c \
-          -o libmain_x86.so \
-          -I. -I$ANDROID_NDK_ROOT/sources/android/native_app_glue \
-          -landroid -llog -lGLESv2 -lEGL -lm
-    
     - name: Package APK
       run: |
-        mkdir -p staging/lib/arm64-v8a staging/lib/armeabi-v7a staging/lib/x86_64 staging/lib/x86 staging/assets
+        mkdir -p staging/lib/arm64-v8a staging/lib/armeabi-v7a staging/assets
         cp libmain_64.so staging/lib/arm64-v8a/libmain.so
         cp libmain_32.so staging/lib/armeabi-v7a/libmain.so
-        cp libmain_x86_64.so staging/lib/x86_64/libmain.so
-        cp libmain_x86.so staging/lib/x86/libmain.so
         
-        if [ -d assets ]; then cp -r assets/* staging/assets/; fi
+        if [ -d "assets" ]; then cp -r assets/* staging/assets/; fi
         
         BUILD_TOOLS=$ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools/ | tail -n 1)
         
@@ -75,18 +59,16 @@ jobs:
           -I $ANDROID_HOME/platforms/android-34/android.jar \
           -F unsigned.apk staging/
         
-        $BUILD_TOOLS/zipalign -v 4 unsigned.apk aligned.apk
-        
         keytool -genkey -v -keystore debug.keystore \
           -storepass android -alias androidkey \
           -keypass android -keyalg RSA -keysize 2048 \
           -validity 10000 -dname "CN=Debug"
         
         $BUILD_TOOLS/apksigner sign --ks debug.keystore \
-          --ks-pass pass:android --out final.apk aligned.apk
+          --ks-pass pass:android --out final.apk unsigned.apk
     
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: Black-Cube-Game
+        name: Cubic-Battle-X
         path: final.apk
