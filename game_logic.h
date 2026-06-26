@@ -3,11 +3,10 @@
 
 #define MAP_W 32
 #define MAP_H 20
-#define TILE_SIZE 120.0f // Увеличим размер тайла
+#define TILE_SIZE 120.0f
 
-static char WORLD_MAP[MAP_H][MAP_W] = {0}; // Инициализируем нулями
+static char WORLD_MAP[MAP_H][MAP_W]; // Просто объявляем
 
-// Функция для создания границ
 static inline void create_map_borders() {
     for(int y = 0; y < MAP_H; y++) {
         for(int x = 0; x < MAP_W; x++) {
