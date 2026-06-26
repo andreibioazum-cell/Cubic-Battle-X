@@ -1,19 +1,28 @@
 #ifndef LOBBY_H
 #define LOBBY_H
-#include "font.h"
+#include "utils.h"
 
+// Перечисление для состояний игры: Лобби или Сама Игра
 typedef enum { STATE_LOBBY, STATE_GAME } GameState;
 
+// Рисует экран лобби
 static inline void draw_lobby(GLint mvp_loc, GLint col_loc, int w, int h, mat4 view) {
+    // Темно-синий фон
     glUniform4f(col_loc, 0.05f, 0.05f, 0.1f, 1.0f);
     draw_quad(mvp_loc, 0, 0, w, h, 0, 0, view);
-    glUniform4f(col_loc, 0.2f, 0.5f, 1.0f, 1.0f); // Кнопка синяя
-    draw_quad(mvp_loc, w/2 - 150, h/2 - 50, 300, 100, 0, 0, view);
-    glUniform4f(col_loc, 1, 1, 1, 1);
-    draw_digit(mvp_loc, 0, w/2 - 20, h/2 - 20, 5, view); // Рисуем "0" как символ старта
+
+    // Большая синяя кнопка "START"
+    glUniform4f(col_loc, 0.2f, 0.5f, 1.0f, 1.0f);
+    draw_quad(mvp_loc, w/2 - 200, h/2 - 60, 400, 120, 0, 0, view);
 }
 
-static inline int lobby_check(float x, float y, int w, int h) {
-    return (x > w/2 - 150 && x < w/2 + 150 && y > h/2 - 50 && y < h/2 + 50);
+// Проверяет, был ли клик в пределах кнопки
+static inline int lobby_is_clicked(float x, float y, int w, int h) {
+    float btn_x_start = w/2 - 200;
+    float btn_x_end   = w/2 + 200;
+    float btn_y_start = h/2 - 60;
+    float btn_y_end   = h/2 + 60;
+    
+    return (x > btn_x_start && x < btn_x_end && y > btn_y_start && y < btn_y_end);
 }
 #endif
