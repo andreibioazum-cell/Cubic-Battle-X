@@ -4,7 +4,8 @@
 #include <android/asset_manager.h>
 #include <GLES2/gl2.h>
 
-#include "stb_rect_pack.hh"
+// ИСПРАВЛЕНО: Правильное имя файла
+#include "stb_rect_pack.h" 
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
 
