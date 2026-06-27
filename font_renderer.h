@@ -4,6 +4,7 @@
 #include <android/asset_manager.h>
 #include <GLES2/gl2.h>
 
+#include "stb_rect_pack.hh"
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
 
@@ -12,21 +13,14 @@
 
 typedef struct {
     GLuint tex_id;
-    stbtt_bakedchar cdata[96]; // ASCII 32-127
+    stbtt_bakedchar cdata[96];
 } Font;
 
-// Инициализация шрифта
 static inline int font_init(AAssetManager* mgr, Font* font, const char* filename, float size) {
-    AAsset* asset = AAssetManager_open(mgr, filename, AASSET_MODE_BUFFER);
-    if (!asset) return 0;
-
-    size_t asset_size = AAsset_getLength(asset);
-    unsigned char* ttf_buffer = malloc(asset_size);
-    AAsset_read(asset, ttf_buffer, asset_size);
-    AAsset_close(asset);
-
+    AAsset* asset = AAssetManager_open(mgr, filename, AASSET_MODE_BUFFER); if (!asset) return 0;
+    size_t asset_size = AAsset_getLength(asset); unsigned char* ttf_buffer = malloc(asset_size);
+    AAsset_read(asset, ttf_buffer, asset_size); AAsset_close(asset);
     unsigned char* bitmap = malloc(FONT_ATLAS_WIDTH * FONT_ATLAS_HEIGHT);
-    
     stbtt_BakeFontBitmap(ttf_buffer, 0, size, bitmap, FONT_ATLAS_WIDTH, FONT_ATLAS_HEIGHT, 32, 96, font->cdata);
     
     glGenTextures(1, &font->tex_id);
@@ -35,33 +29,32 @@ static inline int font_init(AAssetManager* mgr, Font* font, const char* filename
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     
-    free(bitmap);
-    free(ttf_buffer);
+    free(bitmap); free(ttf_buffer);
     return 1;
 }
 
-// Отрисовка текста
-static inline void font_draw_text(GLuint pos_attrib, GLuint uv_attrib, Font* font, const char* text, float* x, float* y) {
+static inline void font_draw_text(GLint p_loc, GLint uv_loc, Font* font, const char* text, float* x, float* y) {
+    glEnableVertexAttribArray(p_loc);
+    glEnableVertexAttribArray(uv_loc);
+
     while (*text) {
         if (*text >= 32 && *text < 128) {
             stbtt_aligned_quad q;
             stbtt_GetBakedQuad(font->cdata, FONT_ATLAS_WIDTH, FONT_ATLAS_HEIGHT, *text - 32, x, y, &q, 1);
             
             float vertices[] = {
-                q.x0, q.y0, q.s0, q.t0,
-                q.x1, q.y0, q.s1, q.t0,
-                q.x0, q.y1, q.s0, q.t1,
-                q.x1, q.y1, q.s1, q.t1
+                q.x0, q.y0, q.s0, q.t0, q.x1, q.y0, q.s1, q.t0,
+                q.x0, q.y1, q.s0, q.t1, q.x1, q.y1, q.s1, q.t1
             };
             
-            glVertexAttribPointer(pos_attrib, 2, GL_FLOAT, GL_FALSE, 16, vertices);
-            glEnableVertexAttribArray(pos_attrib);
-            glVertexAttribPointer(uv_attrib, 2, GL_FLOAT, GL_FALSE, 16, &vertices[2]);
-            glEnableVertexAttribArray(uv_attrib);
-            
+            glVertexAttribPointer(p_loc, 2, GL_FLOAT, GL_FALSE, 16, vertices);
+            glVertexAttribPointer(uv_loc, 2, GL_FLOAT, GL_FALSE, 16, &vertices[2]);
             glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         }
         text++;
     }
+    
+    glDisableVertexAttribArray(p_loc);
+    glDisableVertexAttribArray(uv_loc);
 }
 #endif
