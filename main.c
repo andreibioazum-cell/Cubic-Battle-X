@@ -65,18 +65,18 @@ static void draw_frame(struct engine* eng) {
         mat4 world = view; mat4_translate(&world, w/2.0f - eng->camX, h/2.0f - eng->camY);
         
         glUniform1i(eng->use_tex_loc, 1); glBindTexture(GL_TEXTURE_2D, eng->floor_tex);
-        draw_quad(eng->mvp_loc, -10000, -10000, 20000, 20000, 200, 200, world);
+        draw_quad(eng->mvp_loc, eng->p_loc, eng->uv_loc, -10000, -10000, 20000, 20000, 200, 200, world);
 
         glUniform1i(eng->use_tex_loc, 0); glUniform4f(eng->col_loc, 0.2f, 0.2f, 0.2f, 1.0f);
         for (int y=0; y<MAP_H; y++) for (int x=0; x<MAP_W; x++)
-            if (WORLD_MAP[y][x] == 1) draw_quad(eng->mvp_loc, x*TILE_SIZE, y*TILE_SIZE, TILE_SIZE, TILE_SIZE, 0,0, world);
+            if (WORLD_MAP[y][x] == 1) draw_quad(eng->mvp_loc, eng->p_loc, eng->uv_loc, x*TILE_SIZE, y*TILE_SIZE, TILE_SIZE, TILE_SIZE, 0,0, world);
         
         glUniform1i(eng->use_tex_loc, 1); glBindTexture(GL_TEXTURE_2D, eng->player_tex);
-        draw_quad_ext(eng->mvp_loc, eng->player.x, eng->player.y, PLAYER_SIZE, PLAYER_SIZE, 1, 1, eng->player.angle, world);
+        draw_quad_ext(eng->mvp_loc, eng->p_loc, eng->uv_loc, eng->player.x, eng->player.y, PLAYER_SIZE, PLAYER_SIZE, 1, 1, eng->player.angle, world);
 
         glUniform1i(eng->use_tex_loc, 0); glUniform4f(eng->col_loc, 0,0,0,1);
-        ui_draw_circle(eng->mvp_loc, eng->joy.sx, eng->joy.sy, 80, 4, view);
-        ui_draw_circle(eng->mvp_loc, eng->joy.cx, eng->joy.cy, 30, 0, view);
+        ui_draw_circle(eng->mvp_loc, eng->p_loc, eng->joy.sx, eng->joy.sy, 80, 4, view);
+        ui_draw_circle(eng->mvp_loc, eng->p_loc, eng->joy.cx, eng->joy.cy, 30, 0, view);
     }
     eglSwapBuffers(eng->disp, eng->surf);
 }
@@ -84,29 +84,22 @@ static void draw_frame(struct engine* eng) {
 static int32_t handle_input(struct android_app* app, AInputEvent* ev) {
     struct engine* eng = (struct engine*)app->userData;
     if (AInputEvent_getType(ev) != AINPUT_EVENT_TYPE_MOTION) return 0;
-
-    int action = AMotionEvent_getAction(ev);
-    int code = action & AMOTION_EVENT_ACTION_MASK;
+    int action = AMotionEvent_getAction(ev); int code = action & AMOTION_EVENT_ACTION_MASK;
     int idx = (action & AMOTION_EVENT_ACTION_POINTER_INDEX_MASK) >> AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
     int id = AMotionEvent_getPointerId(ev, idx);
     float x = AMotionEvent_getX(ev, idx), y = AMotionEvent_getY(ev, idx);
-
     if (eng->state == STATE_LOBBY) {
-        if (code == AMOTION_EVENT_ACTION_DOWN) {
-            if (lobby_is_clicked(x, y, ANativeWindow_getWidth(app->window), ANativeWindow_getHeight(app->window))) {
-                eng->state = STATE_GAME;
-                return 1;
-            }
+        if (code == AMOTION_EVENT_ACTION_DOWN && lobby_is_clicked(x, y, ANativeWindow_getWidth(app->window), ANativeWindow_getHeight(app->window))) {
+            eng->state = STATE_GAME; return 1;
         }
     } else {
         if (code == AMOTION_EVENT_ACTION_DOWN || code == AMOTION_EVENT_ACTION_POINTER_DOWN) {
-            float dx = x - eng->joy.sx, dy = y - eng->joy.sy;
-            if (sqrtf(dx*dx+dy*dy) < 180.0f && !eng->joy.active) { eng->joy.active=1; eng->joy.pid=id; }
+            float dx=x-eng->joy.sx, dy=y-eng->joy.sy;
+            if (sqrtf(dx*dx+dy*dy)<180.0f && !eng->joy.active) { eng->joy.active=1; eng->joy.pid=id; }
         } else if (code == AMOTION_EVENT_ACTION_MOVE) {
             for (int i=0; i<AMotionEvent_getPointerCount(ev); i++) {
-                if(AMotionEvent_getPointerId(ev, i) == eng->joy.pid) {
-                    float mx=AMotionEvent_getX(ev,i), my=AMotionEvent_getY(ev,i);
-                    float dx=mx-eng->joy.sx, dy=my-eng->joy.sy, d=sqrtf(dx*dx+dy*dy);
+                if (AMotionEvent_getPointerId(ev, i) == eng->joy.pid) {
+                    float mx=AMotionEvent_getX(ev,i), my=AMotionEvent_getY(ev,i), dx=mx-eng->joy.sx, dy=my-eng->joy.sy, d=sqrtf(dx*dx+dy*dy);
                     if (d > 80.0f) { dx*=80.0f/d; dy*=80.0f/d; }
                     eng->joy.cx=eng->joy.sx+dx; eng->joy.cy=eng->joy.sy+dy;
                 }
@@ -122,8 +115,7 @@ static void handle_cmd(struct android_app* app, int32_t cmd) {
     struct engine* eng = (struct engine*)app->userData;
     switch (cmd) {
         case APP_CMD_INIT_WINDOW: {
-            if (app->window == NULL) return;
-            create_map_borders();
+            if (app->window == NULL) return; create_map_borders();
             eng->disp=eglGetDisplay(EGL_DEFAULT_DISPLAY); eglInitialize(eng->disp,0,0);
             EGLConfig cfg; EGLint n; eglChooseConfig(eng->disp,(EGLint[]){EGL_RENDERABLE_TYPE,EGL_OPENGL_ES2_BIT,EGL_BLUE_SIZE,8,EGL_NONE},&cfg,1,&n);
             eng->surf=eglCreateWindowSurface(eng->disp,cfg,app->window,NULL);
@@ -133,22 +125,19 @@ static void handle_cmd(struct android_app* app, int32_t cmd) {
             GLuint vs=glCreateShader(GL_VERTEX_SHADER); glShaderSource(vs,1,&VS,0); glCompileShader(vs);
             GLuint fs=glCreateShader(GL_FRAGMENT_SHADER); glShaderSource(fs,1,&FS,0); glCompileShader(fs);
             eng->prog=glCreateProgram(); glAttachShader(eng->prog,vs); glAttachShader(eng->prog,fs);
-            glBindAttribLocation(eng->prog, 0, "p"); glBindAttribLocation(eng->prog, 1, "uv");
+            eng->p_loc = 0; eng->uv_loc = 1;
+            glBindAttribLocation(eng->prog, eng->p_loc, "p"); glBindAttribLocation(eng->prog, eng->uv_loc, "uv");
             glLinkProgram(eng->prog);
             
-            eng->p_loc = 0; eng->uv_loc = 1;
-            eng->mvp_loc=glGetUniformLocation(eng->prog,"m");
-            eng->col_loc=glGetUniformLocation(eng->prog,"c");
+            eng->mvp_loc=glGetUniformLocation(eng->prog,"m"); eng->col_loc=glGetUniformLocation(eng->prog,"c");
             eng->use_tex_loc=glGetUniformLocation(eng->prog,"use_tex");
 
             font_init(app->activity->assetManager, &eng->main_font, "Roboto-Regular.ttf", 48.0f);
             eng->floor_tex = load_texture_smooth(eng, "floor.png");
             eng->player_tex = load_texture_pixelated(eng, "ordinary.png");
 
-            eng->player.x=TILE_SIZE*2; eng->player.y=TILE_SIZE*2;
-            eng->player.speed=8.0f; eng->player.angle=0.0f;
-            eng->state=STATE_LOBBY; eng->joy.pid=-1;
-            eng->animating=1;
+            eng->player.x=TILE_SIZE*2; eng->player.y=TILE_SIZE*2; eng->player.speed=8.0f; eng->player.angle=0.0f;
+            eng->state=STATE_LOBBY; eng->joy.pid=-1; eng->animating=1;
             break;
         }
         case APP_CMD_TERM_WINDOW: eng->animating=0; break;
