@@ -1,74 +1,32 @@
 name: Build APK
-
-on:
-  push:
-    branches: [ main ]
-  workflow_dispatch:
-
+on: [push, workflow_dispatch]
 jobs:
   build:
     runs-on: ubuntu-latest
-    
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Setup NDK
-      uses: nttld/setup-ndk@v1
+    - uses: actions/checkout@v4
+    - uses: nttld/setup-ndk@v1
       with:
         ndk-version: r25c
-    
-    - name: Download STB libraries
+    - name: STB
       run: |
         wget -O stb_image.h https://raw.githubusercontent.com/nothings/stb/master/stb_image.h
         wget -O stb_truetype.h https://raw.githubusercontent.com/nothings/stb/master/stb_truetype.h
         wget -O stb_rect_pack.h https://raw.githubusercontent.com/nothings/stb/master/stb_rect_pack.h
-    
-    - name: Setup Android SDK
-      uses: android-actions/setup-android@v3
-    
-    - name: Build native libraries
+    - name: Build
       run: |
-        # ARM64
-        $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang \
-          -shared -fPIC main.c \
-          $ANDROID_NDK_ROOT/sources/android/native_app_glue/android_native_app_glue.c \
-          -o libmain_64.so \
-          -I. -I$ANDROID_NDK_ROOT/sources/android/native_app_glue \
-          -landroid -llog -lGLESv2 -lEGL -lm
-        
-        # ARM32
-        $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi21-clang \
-          -shared -fPIC main.c \
-          $ANDROID_NDK_ROOT/sources/android/native_app_glue/android_native_app_glue.c \
-          -o libmain_32.so \
-          -I. -I$ANDROID_NDK_ROOT/sources/android/native_app_glue \
-          -landroid -llog -lGLESv2 -lEGL -lm
-        
-    - name: Package APK
+        $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang -shared -fPIC main.c $ANDROID_NDK_ROOT/sources/android/native_app_glue/android_native_app_glue.c -o libmain_64.so -I. -I$ANDROID_NDK_ROOT/sources/android/native_app_glue -landroid -llog -lGLESv2 -lEGL -lm
+        $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi21-clang -shared -fPIC main.c $ANDROID_NDK_ROOT/sources/android/native_app_glue/android_native_app_glue.c -o libmain_32.so -I. -I$ANDROID_NDK_ROOT/sources/android/native_app_glue -landroid -llog -lGLESv2 -lEGL -lm
+    - name: APK
       run: |
         mkdir -p staging/lib/arm64-v8a staging/lib/armeabi-v7a staging/assets
         cp libmain_64.so staging/lib/arm64-v8a/libmain.so
         cp libmain_32.so staging/lib/armeabi-v7a/libmain.so
-        
-        if [ -d "assets" ]; then cp -r assets/* staging/assets/; fi
-        
-        BUILD_TOOLS=$ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools/ | tail -n 1)
-        
-        $BUILD_TOOLS/aapt package -f -M AndroidManifest.xml \
-          -I $ANDROID_HOME/platforms/android-34/android.jar \
-          -F unsigned.apk staging/
-        
-        keytool -genkey -v -keystore debug.keystore \
-          -storepass android -alias androidkey \
-          -keypass android -keyalg RSA -keysize 2048 \
-          -validity 10000 -dname "CN=Debug"
-        
-        $BUILD_TOOLS/apksigner sign --ks debug.keystore \
-          --ks-pass pass:android --out final.apk unsigned.apk
-    
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
+        cp assets/* staging/assets/
+        $ANDROID_HOME/build-tools/34.0.0/aapt package -f -M AndroidManifest.xml -I $ANDROID_HOME/platforms/android-34/android.jar -F unsigned.apk staging/
+        keytool -genkey -v -keystore d.keystore -storepass android -alias a -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=D"
+        $ANDROID_HOME/build-tools/34.0.0/apksigner sign --ks d.keystore --ks-pass pass:android --out final.apk unsigned.apk
+    - uses: actions/upload-artifact@v4
       with:
         name: Cubic-Battle-X
         path: final.apk
