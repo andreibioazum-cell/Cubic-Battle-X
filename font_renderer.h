@@ -5,8 +5,9 @@
 #include <GLES2/gl2.h>
 #include <stdlib.h>
 
-// Просто подключаем заголовки без реализации
-#include "stb_rect_pack.h"
+// Мы не подключаем тут stb_truetype.h снова, 
+// так как он уже есть в main.c, который включает этот файл.
+// Но для работы структуры нам нужны типы данных.
 #include "stb_truetype.h"
 
 #define FONT_ATLAS_WIDTH 512
