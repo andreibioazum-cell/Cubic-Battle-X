@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <math.h>
 
-// ВАЖНО: Определяем реализации только здесь!
+// РЕАЛИЗАЦИИ БИБЛИОТЕК STB (ТОЛЬКО ЗДЕСЬ)
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #define STB_RECT_PACK_IMPLEMENTATION
@@ -14,13 +14,14 @@
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
 
+// ПОДКЛЮЧАЕМ НАШИ МОДУЛИ
 #include "utils.h"
 #include "shaders.h"
 #include "entity.h"
 #include "ui.h"
+#include "font_renderer.h"
 #include "lobby.h"
 #include "game_logic.h"
-#include "font_renderer.h"
 
 struct engine {
     struct android_app* app;
@@ -158,7 +159,7 @@ static void handle_cmd(struct android_app* app, int32_t cmd) {
             eng->floor_tex = load_tex(eng, "floor.png", 1);
             eng->player_tex = load_tex(eng, "ordinary.png", 0);
             eng->player.x = 300; eng->player.y = 300; eng->player.speed = 8.0f;
-            eng->state = STATE_LOBBY; eng->animating = 1;
+            eng->state = STATE_LOBBY; eng->joy.pid = -1; eng->animating = 1;
             break;
         case APP_CMD_TERM_WINDOW: eng->animating = 0; break;
     }
