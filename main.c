@@ -6,20 +6,22 @@
 #include <stdlib.h>
 #include <math.h>
 
-// ОПРЕДЕЛЯЕМ РЕАЛИЗАЦИИ БИБЛИОТЕК STB ОДИН РАЗ
+// 1. РЕАЛИЗАЦИИ БИБЛИОТЕК (ТОЛЬКО ЗДЕСЬ)
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
+
 #define STB_RECT_PACK_IMPLEMENTATION
 #include "stb_rect_pack.h"
+
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
 
-// ТЕПЕРЬ ПОДКЛЮЧАЕМ НАШИ ФАЙЛЫ
+// 2. ТЕПЕРЬ МОЖНО ВКЛЮЧАТЬ НАШИ ФАЙЛЫ
 #include "utils.h"
 #include "shaders.h"
 #include "entity.h"
 #include "ui.h"
-#include "font_renderer.h"
+#include "font_renderer.h" // Теперь он не вызовет ошибку
 #include "lobby.h"
 #include "game_logic.h"
 
@@ -95,7 +97,8 @@ static void draw_frame(struct engine* eng) {
         glUniform1i(eng->use_tex_loc, 1); glBindTexture(GL_TEXTURE_2D, eng->player_tex);
         draw_quad_ext(eng->mvp_loc, eng->p_loc, eng->uv_loc, eng->player.x, eng->player.y, 120, 120, 1, 1, eng->player.angle, world);
 
-        glUniform1i(eng->use_tex_loc, 0); glUniform4f(eng->col_loc, 0, 0, 0, 0.5f);
+        glUniform1i(eng->use_tex_loc, 0); 
+        glUniform4f(eng->col_loc, 0, 0, 0, 0.5f);
         ui_draw_circle(eng->mvp_loc, eng->p_loc, eng->joy.sx, eng->joy.sy, 100, view);
         glUniform4f(eng->col_loc, 0, 0, 0, 1.0f);
         ui_draw_circle(eng->mvp_loc, eng->p_loc, eng->joy.cx, eng->joy.cy, 40, view);
@@ -111,6 +114,7 @@ static int32_t handle_input(struct android_app* app, AInputEvent* ev) {
     int idx = (act & AMOTION_EVENT_ACTION_POINTER_INDEX_MASK) >> AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
     float x = AMotionEvent_getX(ev, idx), y = AMotionEvent_getY(ev, idx);
     int id = AMotionEvent_getPointerId(ev, idx);
+
     if(eng->state == STATE_LOBBY) {
         if(code == AMOTION_EVENT_ACTION_DOWN && lobby_is_clicked(x, y, ANativeWindow_getWidth(app->window), ANativeWindow_getHeight(app->window))) 
             eng->state = STATE_GAME;
@@ -140,21 +144,25 @@ static void handle_cmd(struct android_app* app, int32_t cmd) {
         case APP_CMD_INIT_WINDOW:
             create_map_borders();
             eng->disp = eglGetDisplay(EGL_DEFAULT_DISPLAY); eglInitialize(eng->disp, 0, 0);
-            EGLConfig cfg; EGLint n; eglChooseConfig(eng->disp, (EGLint[]){EGL_RENDERABLE_TYPE,EGL_OPENGL_ES2_BIT,EGL_BLUE_SIZE,8,EGL_NONE}, &cfg, 1, &n);
+            EGLConfig cfg; EGLint n; eglChooseConfig(eng->disp,(EGLint[]){EGL_RENDERABLE_TYPE,EGL_OPENGL_ES2_BIT,EGL_BLUE_SIZE,8,EGL_NONE},&cfg,1,&n);
             eng->surf = eglCreateWindowSurface(eng->disp, cfg, app->window, NULL);
             eng->ctx = eglCreateContext(eng->disp, cfg, NULL, (EGLint[]){EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE});
             eglMakeCurrent(eng->disp, eng->surf, eng->surf, eng->ctx);
+
             GLuint vs = glCreateShader(GL_VERTEX_SHADER); glShaderSource(vs, 1, &VS, 0); glCompileShader(vs);
             GLuint fs = glCreateShader(GL_FRAGMENT_SHADER); glShaderSource(fs, 1, &FS, 0); glCompileShader(fs);
             eng->prog = glCreateProgram(); glAttachShader(eng->prog, vs); glAttachShader(eng->prog, fs);
             eng->p_loc = 0; eng->uv_loc = 1;
             glBindAttribLocation(eng->prog, eng->p_loc, "p"); glBindAttribLocation(eng->prog, eng->uv_loc, "uv");
             glLinkProgram(eng->prog);
+            
             eng->mvp_loc = glGetUniformLocation(eng->prog, "m"); eng->col_loc = glGetUniformLocation(eng->prog, "c");
             eng->use_tex_loc = glGetUniformLocation(eng->prog, "use_tex");
+
             font_init(app->activity->assetManager, &eng->main_font, "Roboto-Regular.ttf", 60.0f);
             eng->floor_tex = load_tex(eng, "floor.png", 1);
             eng->player_tex = load_tex(eng, "ordinary.png", 0);
+
             eng->player.x = 300; eng->player.y = 300; eng->player.speed = 8.0f;
             eng->state = STATE_LOBBY; eng->joy.pid = -1; eng->animating = 1;
             break;
