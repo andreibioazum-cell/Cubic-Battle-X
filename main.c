@@ -6,8 +6,11 @@
 #include <stdlib.h>
 #include <math.h>
 
+// ВАЖНО: Определяем реализации только здесь!
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
+#define STB_RECT_PACK_IMPLEMENTATION
+#include "stb_rect_pack.h"
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
 
@@ -56,7 +59,7 @@ static void draw_frame(struct engine* eng) {
     int w = ANativeWindow_getWidth(eng->app->window);
     int h = ANativeWindow_getHeight(eng->app->window);
     
-    eng->joy.sx = 150; eng->joy.sy = h - 150;
+    eng->joy.sx = 150.0f; eng->joy.sy = (float)h - 150.0f;
     if(!eng->joy.active) { eng->joy.cx = eng->joy.sx; eng->joy.cy = eng->joy.sy; }
 
     glViewport(0, 0, w, h);
@@ -80,14 +83,14 @@ static void draw_frame(struct engine* eng) {
         eng->camX = lerp(eng->camX, eng->player.x, 0.08f);
         eng->camY = lerp(eng->camY, eng->player.y, 0.08f);
         mat4 world = view;
-        mat4_translate(&world, w/2.0f - eng->camX, h/2.0f - eng->camY);
+        mat4_translate(&world, (float)w/2.0f - eng->camX, (float)h/2.0f - eng->camY);
 
         glUniform1i(eng->use_tex_loc, 1); glBindTexture(GL_TEXTURE_2D, eng->floor_tex);
         draw_quad(eng->mvp_loc, eng->p_loc, eng->uv_loc, -5000, -5000, 10000, 10000, 100, 100, world);
 
         glUniform1i(eng->use_tex_loc, 0); glUniform4f(eng->col_loc, 0.2f, 0.2f, 0.2f, 1.0f);
         for(int y=0; y<MAP_H; y++) for(int x=0; x<MAP_W; x++)
-            if(WORLD_MAP[y][x] == 1) draw_quad(eng->mvp_loc, eng->p_loc, eng->uv_loc, x*TILE_SIZE, y*TILE_SIZE, TILE_SIZE, TILE_SIZE, 0, 0, world);
+            if(WORLD_MAP[y][x] == 1) draw_quad(eng->mvp_loc, eng->p_loc, eng->uv_loc, (float)x*TILE_SIZE, (float)y*TILE_SIZE, TILE_SIZE, TILE_SIZE, 0, 0, world);
 
         glUniform1i(eng->use_tex_loc, 1); glBindTexture(GL_TEXTURE_2D, eng->player_tex);
         draw_quad_ext(eng->mvp_loc, eng->p_loc, eng->uv_loc, eng->player.x, eng->player.y, 120, 120, 1, 1, eng->player.angle, world);
@@ -116,7 +119,7 @@ static int32_t handle_input(struct android_app* app, AInputEvent* ev) {
     } else {
         if(code == AMOTION_EVENT_ACTION_DOWN || code == AMOTION_EVENT_ACTION_POINTER_DOWN) {
             float dx = x - eng->joy.sx, dy = y - eng->joy.sy;
-            if(sqrtf(dx*dx+dy*dy) < 200.0f) { eng->joy.active = 1; eng->joy.pid = id; }
+            if(sqrtf(dx*dx+dy*dy) < 200.0f && !eng->joy.active) { eng->joy.active = 1; eng->joy.pid = id; }
         } else if(code == AMOTION_EVENT_ACTION_MOVE) {
             for(int i=0; i<AMotionEvent_getPointerCount(ev); i++) {
                 if(AMotionEvent_getPointerId(ev, i) == eng->joy.pid) {
@@ -164,6 +167,7 @@ static void handle_cmd(struct android_app* app, int32_t cmd) {
 void android_main(struct android_app* state) {
     struct engine eng = {0}; state->userData = &eng;
     state->onAppCmd = handle_cmd; state->onInputEvent = handle_input;
+    eng.app = state;
     while (1) {
         int ident, events; struct android_poll_source* source;
         while ((ident = ALooper_pollOnce(eng.animating ? 0 : -1, NULL, &events, (void**)&source)) >= 0) {
