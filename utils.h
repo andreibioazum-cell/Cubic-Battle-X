@@ -25,7 +25,8 @@ static inline void draw_quad(GLint mvp_loc, GLint p_loc, GLint uv_loc, float x, 
 static inline void draw_quad_ext(GLint mvp_loc, GLint p_loc, GLint uv_loc, float x, float y, float w, float h, float tx, float ty, float angle, mat4 view) {
     mat4 m = view; mat4_translate(&m, x, y);
     float s = sinf(angle), c = cosf(angle), r0 = m.m[0], r5 = m.m[5];
-    m.m[0] = c * r0; m.m[1] = s * r5; m.m[4] = -s * r0; m.m[5] = c * r5;
+    m.m[0] = c * r0; m.m[1] = s * r5;
+    m.m[4] = -s * r0; m.m[5] = c * r5;
     float v[] = { -w/2,-h/2, 0,0, -w/2,h/2, 0,ty, w/2,-h/2, tx,0, w/2,h/2, tx,ty };
     glUniformMatrix4fv(mvp_loc, 1, GL_FALSE, m.m);
     glEnableVertexAttribArray(p_loc); glEnableVertexAttribArray(uv_loc);
