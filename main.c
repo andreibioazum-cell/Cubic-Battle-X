@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <math.h>
 
-// РЕАЛИЗАЦИИ БИБЛИОТЕК STB (ТОЛЬКО ЗДЕСЬ)
+// ОПРЕДЕЛЯЕМ РЕАЛИЗАЦИИ БИБЛИОТЕК STB ОДИН РАЗ
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #define STB_RECT_PACK_IMPLEMENTATION
@@ -14,7 +14,7 @@
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
 
-// ПОДКЛЮЧАЕМ НАШИ МОДУЛИ
+// ТЕПЕРЬ ПОДКЛЮЧАЕМ НАШИ ФАЙЛЫ
 #include "utils.h"
 #include "shaders.h"
 #include "entity.h"
@@ -59,7 +59,6 @@ static void draw_frame(struct engine* eng) {
     if (!eng->disp) return;
     int w = ANativeWindow_getWidth(eng->app->window);
     int h = ANativeWindow_getHeight(eng->app->window);
-    
     eng->joy.sx = 150.0f; eng->joy.sy = (float)h - 150.0f;
     if(!eng->joy.active) { eng->joy.cx = eng->joy.sx; eng->joy.cy = eng->joy.sy; }
 
@@ -96,8 +95,7 @@ static void draw_frame(struct engine* eng) {
         glUniform1i(eng->use_tex_loc, 1); glBindTexture(GL_TEXTURE_2D, eng->player_tex);
         draw_quad_ext(eng->mvp_loc, eng->p_loc, eng->uv_loc, eng->player.x, eng->player.y, 120, 120, 1, 1, eng->player.angle, world);
 
-        glUniform1i(eng->use_tex_loc, 0); 
-        glUniform4f(eng->col_loc, 0, 0, 0, 0.5f);
+        glUniform1i(eng->use_tex_loc, 0); glUniform4f(eng->col_loc, 0, 0, 0, 0.5f);
         ui_draw_circle(eng->mvp_loc, eng->p_loc, eng->joy.sx, eng->joy.sy, 100, view);
         glUniform4f(eng->col_loc, 0, 0, 0, 1.0f);
         ui_draw_circle(eng->mvp_loc, eng->p_loc, eng->joy.cx, eng->joy.cy, 40, view);
@@ -113,7 +111,6 @@ static int32_t handle_input(struct android_app* app, AInputEvent* ev) {
     int idx = (act & AMOTION_EVENT_ACTION_POINTER_INDEX_MASK) >> AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
     float x = AMotionEvent_getX(ev, idx), y = AMotionEvent_getY(ev, idx);
     int id = AMotionEvent_getPointerId(ev, idx);
-
     if(eng->state == STATE_LOBBY) {
         if(code == AMOTION_EVENT_ACTION_DOWN && lobby_is_clicked(x, y, ANativeWindow_getWidth(app->window), ANativeWindow_getHeight(app->window))) 
             eng->state = STATE_GAME;
