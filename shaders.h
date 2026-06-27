@@ -3,10 +3,11 @@
 static const char* VS = 
     "uniform mat4 m; attribute vec4 p; attribute vec2 uv; varying vec2 v_uv; "
     "void main(){ gl_Position = m * p; v_uv = uv; }";
+
 static const char* FS = 
     "precision mediump float; uniform vec4 c; uniform sampler2D tex; uniform int use_tex; varying vec2 v_uv; "
     "void main(){ "
-    "if(use_tex==1){ gl_FragColor = texture2D(tex, v_uv); } "
-    "else if(use_tex==2){ gl_FragColor = vec4(c.rgb, texture2D(tex, v_uv).a * c.a); } "
+    "if(use_tex == 1){ gl_FragColor = texture2D(tex, v_uv); } "
+    "else if(use_tex == 2){ float a = texture2D(tex, v_uv).a; gl_FragColor = vec4(c.rgb, a * c.a); } "
     "else { gl_FragColor = c; } }";
 #endif
