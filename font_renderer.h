@@ -5,7 +5,7 @@
 #include <GLES2/gl2.h>
 #include <stdlib.h>
 
-// STB Truetype декларации
+// Просто подключаем заголовки без реализации
 #include "stb_rect_pack.h"
 #include "stb_truetype.h"
 
@@ -19,7 +19,7 @@ typedef struct {
 
 static inline int font_init(AAssetManager* mgr, Font* font, const char* filename, float font_size) {
     AAsset* asset = AAssetManager_open(mgr, filename, AASSET_MODE_BUFFER);
-    if (!asset) return 0; // Файл не найден
+    if (!asset) return 0;
 
     size_t asset_size = AAsset_getLength(asset);
     unsigned char* ttf_buffer = (unsigned char*)malloc(asset_size);
@@ -28,7 +28,6 @@ static inline int font_init(AAssetManager* mgr, Font* font, const char* filename
 
     unsigned char* bitmap = (unsigned char*)malloc(FONT_ATLAS_WIDTH * FONT_ATLAS_HEIGHT);
     
-    // ИСПРАВЛЕНО: передаем font_size, а не asset_size
     stbtt_BakeFontBitmap(ttf_buffer, 0, font_size, bitmap, FONT_ATLAS_WIDTH, FONT_ATLAS_HEIGHT, 32, 96, font->cdata);
     
     glGenTextures(1, &font->tex_id);
